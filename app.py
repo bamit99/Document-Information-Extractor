@@ -9,7 +9,7 @@ load_dotenv()
 
 # Page config
 st.set_page_config(
-    page_title="Document Q&A Extractor",
+    page_title="Document Information Extractor",
     page_icon="📚",
     layout="wide"
 )
@@ -17,7 +17,7 @@ st.set_page_config(
 # Title and description
 st.title("📚 Document Q&A Extractor")
 st.markdown("""
-This app extracts questions and answers from various document types using LLM providers.
+This app extracts Information from various document based on the prompt provided. It supports PDF, Excel, Word, and Text file types using LLM providers.
 Supported formats:
 - PDF documents
 - Excel files (XLSX, XLS)

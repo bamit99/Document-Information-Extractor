@@ -24,8 +24,8 @@ class LLMProvider(ABC):
     """Abstract base class for LLM providers"""
     
     def __init__(self):
-        self.system_prompt = "Extract questions and answers from the given text."
-        self.user_prompt_template = "Extract all questions and answers from the following text:\n\n{text}\n\nFormat as: Question: ... Answer: ..."
+        self.system_prompt = ""
+        self.user_prompt_template = ""
     
     def set_prompts(self, system_prompt: str, user_prompt_template: str):
         """Set custom prompts for the provider"""
@@ -57,6 +57,9 @@ class OpenAIProvider(LLMProvider):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def generate_qa(self, text: str) -> Optional[str]:
         try:
+            if not self.system_prompt or not self.user_prompt_template:
+                raise ValueError("Prompts not set. Please configure them in the UI.")
+                
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -94,11 +97,17 @@ class OllamaProvider(LLMProvider):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def generate_qa(self, text: str) -> Optional[str]:
         try:
+            if not self.system_prompt or not self.user_prompt_template:
+                raise ValueError("Prompts not set. Please configure them in the UI.")
+                
+            # For Ollama, we combine system and user prompts
+            full_prompt = f"{self.system_prompt}\n\n{self.user_prompt_template.format(text=text)}"
+            
             response = requests.post(
                 f"{self.base_url}/api/generate",
                 json={
                     "model": self.model,
-                    "prompt": f"{self.system_prompt}\n\n{self.user_prompt_template.format(text=text)}",
+                    "prompt": full_prompt,
                     "stream": False
                 }
             )
@@ -142,6 +151,9 @@ class DeepseekProvider(LLMProvider):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def generate_qa(self, text: str) -> Optional[str]:
         try:
+            if not self.system_prompt or not self.user_prompt_template:
+                raise ValueError("Prompts not set. Please configure them in the UI.")
+                
             response = requests.post(
                 f"{self.base_url}/v1/chat/completions",
                 headers=self.headers,
