@@ -280,21 +280,15 @@ def main():
         This application uses various LLM providers to extract questions and answers from document files.
         
         **Supported Providers:**
+        - OpenAI (GPT-3.5, GPT-4)
+        - Ollama (Local models)
+        - Deepseek
         
-        1. **OpenAI**
-           - Uses GPT models (3.5-turbo, GPT-4)
-           - Requires API key
-           - Best for accuracy and reliability
-        
-        2. **Ollama**
-           - Uses local models (llama2, mistral, etc.)
-           - Requires running Ollama server
-           - Free and private processing
-        
-        3. **Deepseek**
-           - Multiple specialized models
-           - Requires API key
-           - Good for specific use cases
+        **Supported File Types:**
+        - PDF documents (.pdf)
+        - Excel files (.xlsx, .xls)
+        - Word documents (.docx)
+        - Text files (.txt, .csv, .json, .xml, .md)
         
         **Features:**
         - Multiple LLM provider support
@@ -303,23 +297,23 @@ def main():
         - Automatic text extraction
         - AI-powered Q&A generation
         - Markdown output format
-        - Download results
         
         **Limitations:**
         - File size limit: 10MB
         - Processing time depends on:
           - File size and content
           - Selected provider and model
-          - Network conditions
+          - Network speed
         
-        **Output Format:**
-        The generated Q&A pairs are formatted in Markdown with the following structure:
+        ### Output Format
+        The generated Q&A will be in markdown format:
+        
         ```markdown
         # Extracted Questions and Answers
         
         ## Question: ...
         Answer: ...
-        """
+        ```
         """)
 
 if __name__ == "__main__":
