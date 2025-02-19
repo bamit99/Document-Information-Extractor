@@ -5,6 +5,8 @@ from python import PDFProcessor, OpenAIProvider, OllamaProvider, DeepseekProvide
 from dotenv import load_dotenv
 import tempfile
 import zipfile
+from datetime import datetime
+import io
 
 # Load environment variables
 load_dotenv()
@@ -67,6 +69,57 @@ def get_provider_models(provider_name: str, config: dict) -> list:
     
     return []
 
+def load_prompt_template(template_name: str) -> tuple[str, str]:
+    """Load system and user prompts from template directory"""
+    base_path = os.path.join("Prompts", template_name)
+    system_path = os.path.join(base_path, "system.md")
+    user_path = os.path.join(base_path, "user.md")
+    
+    system_prompt = ""
+    user_prompt = ""
+    
+    try:
+        if os.path.exists(system_path):
+            with open(system_path, 'r', encoding='utf-8') as f:
+                system_prompt = f.read().strip()
+    except Exception as e:
+        st.error(f"Error loading system prompt: {str(e)}")
+    
+    try:
+        if os.path.exists(user_path):
+            with open(user_path, 'r', encoding='utf-8') as f:
+                user_prompt = f.read().strip()
+                if not user_prompt:  # If user.md is empty, use a default template
+                    user_prompt = "Process the following text:\n\n{text}"
+    except Exception as e:
+        st.error(f"Error loading user prompt: {str(e)}")
+    
+    return system_prompt, user_prompt
+
+def get_prompt_templates() -> list[str]:
+    """Get list of available prompt templates"""
+    prompts_dir = "Prompts"
+    if not os.path.exists(prompts_dir):
+        return []
+    return [d for d in os.listdir(prompts_dir) 
+            if os.path.isdir(os.path.join(prompts_dir, d))]
+
+# Initialize session state variables
+if 'system_prompt' not in st.session_state:
+    st.session_state.system_prompt = "Extract information from the given text."
+if 'user_prompt' not in st.session_state:
+    st.session_state.user_prompt = "Extract information from the following text:\n\n{text}\n\nFormat as: ..."
+if 'provider_name' not in st.session_state:
+    st.session_state.provider_name = "OpenAI"
+if 'llm_config' not in st.session_state:
+    st.session_state.llm_config = {}
+if 'output_dir' not in st.session_state:
+    st.session_state.output_dir = "processed_files"
+
+# Create output directory if it doesn't exist
+output_dir = Path(st.session_state.output_dir)
+output_dir.mkdir(exist_ok=True)
+
 # Sidebar for configuration
 with st.sidebar:
     st.header("Configuration")
@@ -75,7 +128,7 @@ with st.sidebar:
     provider_name = st.selectbox(
         "Select LLM Provider",
         ["OpenAI", "Ollama", "Deepseek"],
-        help="Choose the AI provider to process your documents"
+        key="provider_name"
     )
     
     # Provider-specific configuration
@@ -147,21 +200,69 @@ with st.sidebar:
     
     # Prompt customization
     st.header("Prompt Settings")
-    system_prompt = st.text_area(
-        "System Prompt",
-        value="Extract information from the given text.",
-        help="The instruction given to the AI about its task"
-    )
-    user_prompt_template = st.text_area(
-        "User Prompt Template",
-        value="Extract information from the following text:\n\n{text}\n\nFormat as: ...",
-        help="The template for processing text. Use {text} as placeholder for the document content"
-    )
+    
+    # Add template selection
+    templates = get_prompt_templates()
+    if templates:
+        selected_template = st.selectbox(
+            "Select Prompt Template",
+            ["Custom"] + templates,
+            help="Choose a predefined prompt template or use custom prompts"
+        )
+        
+        if selected_template != "Custom":
+            system_prompt_template, user_prompt_template = load_prompt_template(selected_template)
+            
+            # Display loaded prompts in text areas, allowing for editing
+            system_prompt = st.text_area(
+                "System Prompt",
+                value=system_prompt_template,
+                key="system_prompt",
+                help="The instruction given to the AI about its task"
+            )
+            
+            user_prompt = st.text_area(
+                "User Prompt Template",
+                value=user_prompt_template,
+                key="user_prompt",
+                help="The template for processing text. Use {text} as placeholder for the document content"
+            )
+        else:
+            # Custom prompt inputs
+            system_prompt = st.text_area(
+                "System Prompt",
+                value=st.session_state.system_prompt,
+                key="system_prompt",
+                help="The instruction given to the AI about its task"
+            )
+            
+            user_prompt = st.text_area(
+                "User Prompt Template",
+                value=st.session_state.user_prompt,
+                key="user_prompt",
+                help="The template for processing text. Use {text} as placeholder for the document content"
+            )
+    else:
+        st.warning("No prompt templates found in the Prompts directory")
+        # Fallback to custom prompts
+        system_prompt = st.text_area(
+            "System Prompt",
+            value=st.session_state.system_prompt,
+            key="system_prompt",
+            help="The instruction given to the AI about its task"
+        )
+        
+        user_prompt = st.text_area(
+            "User Prompt Template",
+            value=st.session_state.user_prompt,
+            key="user_prompt",
+            help="The template for processing text. Use {text} as placeholder for the document content"
+        )
     
     # Add usage instructions
     st.markdown("### How to use")
     st.markdown("""
-    1. Select your preferred LLM provider
+    1. Select your LLM provider in the sidebar
     2. Configure the provider settings
     3. Choose a model from the available options
     4. Upload one or more files
@@ -192,6 +293,19 @@ def main():
             return
         
         if st.button("Process Files", type="primary"):
+            # Validate prompts
+            if not st.session_state.system_prompt:
+                st.error("Please configure System Prompt before processing files.")
+                return
+
+            # If user prompt is empty, use just the {text} placeholder
+            if not st.session_state.user_prompt:
+                st.session_state.user_prompt = "{text}"
+                st.info("Using default text placeholder since User Prompt is empty.")
+            elif "{text}" not in st.session_state.user_prompt:
+                st.error("User Prompt must contain {text} placeholder for document content.")
+                return
+
             # Initialize appropriate provider
             try:
                 if provider_name == "OpenAI":
@@ -201,63 +315,82 @@ def main():
                 elif provider_name == "Deepseek":
                     llm_provider = DeepseekProvider(llm_config["api_key"], llm_config["base_url"], llm_config["model"])
                 
-                # Set custom prompts
-                llm_provider.set_prompts(system_prompt, user_prompt_template)
+                # Set custom prompts immediately after initialization
+                llm_provider.set_prompts(st.session_state.system_prompt, st.session_state.user_prompt)
                 
                 processor = DocumentProcessor(llm_provider)
                 
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    temp_dir = Path(temp_dir)
-                    output_dir = temp_dir / "output"
-                    output_dir.mkdir()
+                # Store processed files for later use
+                processed_files = []
+                
+                # Initialize progress
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                # Process each file
+                for i, uploaded_file in enumerate(uploaded_files):
+                    progress = (i) / len(uploaded_files)
+                    progress_bar.progress(progress)
+                    status_text.text(f"Processing {uploaded_file.name}...")
                     
-                    # Initialize progress
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
+                    # Create a temporary file for the uploaded content
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as temp_file:
+                        temp_file.write(uploaded_file.getbuffer())
+                        temp_path = temp_file.name
                     
-                    # Process each file
-                    for i, uploaded_file in enumerate(uploaded_files):
-                        progress = (i) / len(uploaded_files)
-                        progress_bar.progress(progress)
-                        status_text.text(f"Processing {uploaded_file.name}...")
-                        
-                        temp_path = temp_dir / uploaded_file.name
-                        with open(temp_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                        
+                    try:
                         # Extract text
-                        text = processor.process_file(str(temp_path))
+                        text = processor.process_file(temp_path)
                         if text:
                             # Process with LLM
                             result = processor.extract_information(text)
                             if result:
-                                # Save to markdown
-                                output_path = output_dir / f"{temp_path.stem}.md"
+                                # Save to markdown in output directory
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                output_filename = f"{Path(uploaded_file.name).stem}_{timestamp}.md"
+                                output_path = output_dir / output_filename
+                                
                                 if processor.format_to_markdown(result, str(output_path)):
                                     st.success(f"Successfully processed {uploaded_file.name}")
+                                    processed_files.append(output_path)
                                 else:
                                     st.error(f"Failed to save results for {uploaded_file.name}")
                             else:
                                 st.error(f"Failed to process {uploaded_file.name}")
                         else:
                             st.error(f"Failed to extract text from {uploaded_file.name}")
+                    finally:
+                        # Clean up temporary file
+                        os.unlink(temp_path)
+                
+                # Complete progress
+                progress_bar.progress(1.0)
+                status_text.text("Processing complete!")
+                
+                if processed_files:
+                    st.markdown("### Results")
+                    st.markdown(f"Files have been saved to: `{output_dir}`")
                     
-                    # Complete progress
-                    progress_bar.progress(1.0)
-                    status_text.text("Processing complete!")
+                    # Show individual file previews
+                    for output_file in processed_files:
+                        with st.expander(f"Preview: {output_file.name}"):
+                            with open(output_file, "r", encoding="utf-8") as f:
+                                content = f.read()
+                                st.markdown(content)
                     
-                    # Create zip file of results
-                    zip_path = temp_dir / "results.zip"
-                    with zipfile.ZipFile(zip_path, 'w') as zipf:
-                        for markdown_file in output_dir.glob('*.md'):
-                            zipf.write(markdown_file, markdown_file.name)
-                    
-                    # Offer download
-                    with open(zip_path, 'rb') as f:
+                    # Option to download all as zip
+                    if len(processed_files) > 1:
+                        st.markdown("#### Download All Files")
+                        zip_buffer = io.BytesIO()
+                        with zipfile.ZipFile(zip_buffer, 'w') as zipf:
+                            for output_file in processed_files:
+                                zipf.write(output_file, output_file.name)
+                        
+                        zip_buffer.seek(0)
                         st.download_button(
-                            "Download Results",
-                            f,
-                            file_name="extracted_information.zip",
+                            "Download All as ZIP",
+                            zip_buffer,
+                            file_name="processed_files.zip",
                             mime="application/zip",
                             help="Download all processed files as a ZIP archive"
                         )
@@ -305,7 +438,6 @@ def main():
         # Extracted Information
         
         ...
-        ```
         """)
 
 if __name__ == "__main__":

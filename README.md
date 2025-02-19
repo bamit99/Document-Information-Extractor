@@ -20,110 +20,110 @@ A Streamlit-based application that extracts and processes information from vario
   - Comprehensive Excel processing (all sheets, formulas, metadata)
   - PDF text extraction
   - Word document parsing
-  - Batch file processing
+  - Structured text processing
 
 - **Customizable Prompts**
-  - Configurable system prompts
-  - Custom user prompt templates
-  - Dynamic prompt variables
+  - Pre-defined prompt templates in `Prompts` directory
+  - Custom prompt creation
+  - System and User prompt separation
+  - Default text placeholder support
 
-- **User-Friendly Interface**
-  - Progress tracking
-  - Error handling
-  - Batch download of results
-  - Provider configuration
-  - Model selection
+- **Automatic File Management**
+  - Automatic saving to `processed_files` directory
+  - Timestamp-based unique filenames
+  - Preview processed content in UI
+  - Bulk download as ZIP
+  - Markdown output format
 
 ## Installation
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd document-extractor
-```
+1. Clone this repository:
+   ```bash
+   git clone <repository-url>
+   cd Question-Answer
+   ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+2. Install required packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 3. Set up environment variables in `.env`:
-```env
-OPENAI_API_KEY=your_openai_key
-DEEPSEEK_API_KEY=your_deepseek_key
-DEEPSEEK_BASE_URL=your_deepseek_url
-OLLAMA_BASE_URL=http://localhost:11434
-```
+   ```plaintext
+   OPENAI_API_KEY=your_openai_key
+   DEEPSEEK_API_KEY=your_deepseek_key
+   DEEPSEEK_BASE_URL=your_deepseek_url
+   OLLAMA_BASE_URL=your_ollama_url
+   ```
 
 ## Usage
 
 1. Start the application:
-```bash
-streamlit run app.py
-```
+   ```bash
+   streamlit run app.py
+   ```
 
 2. Configure the application:
-   - Select an LLM provider
-   - Enter necessary API keys
-   - Choose a model
-   - Customize prompts if needed
+   - Select your preferred LLM provider
+   - Configure provider settings (API keys, model selection)
+   - Choose or create prompts for processing
 
-3. Upload files:
-   - Select one or more supported files
+3. Process documents:
+   - Upload one or more supported files
    - Click "Process Files"
-   - Download the results
+   - View results in the UI
+   - Find processed files in the `processed_files` directory
 
-## File Processing Details
+## Prompt Templates
 
-### Excel Files
-- Processes all sheets, including renamed ones
-- Extracts document metadata
-- Preserves table structure
-- Handles merged cells
-- Provides statistical summaries for numeric data
+The application supports customizable prompt templates located in the `Prompts` directory:
 
-### PDF Files
-- Extracts text from all pages
-- Maintains document structure
-- Handles various PDF formats
+```
+Prompts/
+├── analyze_paper/
+│   ├── system.md
+│   └── user.md
+├── analyze_patent/
+│   └── ...
+└── ...
+```
 
-### Word Documents
-- Processes text content
-- Extracts tables and lists
-- Maintains document structure
+Each template contains:
+- `system.md`: Instructions for the AI's behavior
+- `user.md`: Template for processing document content
 
-### Text Files
-- Supports various encodings
-- Preserves formatting
-- Handles structured formats (JSON, XML)
+To create a new template:
+1. Create a new directory in `Prompts/`
+2. Add `system.md` and `user.md` files
+3. Use `{text}` placeholder in `user.md` for document content
 
 ## Output Format
 
-Results are provided in markdown format, making them easy to read and process further. The output structure is determined by your prompt and the LLM's response.
+Processed files are saved as Markdown files with:
+- Original filename
+- Timestamp
+- Extracted information
+- Formatted content based on prompts
+
+Example: `document_20250219_183000.md`
 
 ## Dependencies
 
-- `streamlit`: Web interface
-- `pandas`: Data processing
-- `openpyxl`: Excel file handling
-- `python-docx`: Word document processing
-- `PyMuPDF`: PDF processing
-- `python-dotenv`: Environment management
-- `requests`: API communication
-- `openai`: OpenAI API integration
+- Python 3.8+
+- See `requirements.txt` for full list
 
 ## Error Handling
 
-- File size limits (10MB per file)
-- Invalid file formats
-- API connection issues
-- Processing errors
-- Missing configurations
+The application includes:
+- Input validation
+- Error reporting
+- Progress tracking
+- Automatic file cleanup
 
-## Contributing
+## Notes
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-[Your License Here]
+- Files are automatically saved in the `processed_files` directory
+- Each processed file has a unique timestamp
+- Preview processed content before downloading
+- Download individual files or all as ZIP
+- Empty user prompts default to `{text}` placeholder

@@ -1,0 +1,45 @@
+framework: crewai
+topic: 'Comparison between three LLMs Codestral, Autocoder and Qwencode
+
+  '
+roles:
+  data_researcher:
+    backstory: Experienced in data collection and analysis, adept at finding relevant
+      information from various sources.
+    goal: Gather information on three LLMs
+    role: Data Researcher
+    tasks:
+      data_collection_task:
+        description: Collect detailed information about Codestral, Autocoder, and
+          Qwencode from available online resources and documentation.
+        expected_output: A comprehensive dataset including features, capabilities,
+          and user reviews of each LLM.
+    tools:
+    - ''
+  data_analyst:
+    backstory: Skilled in data analysis and interpretation, capable of drawing meaningful
+      insights from complex datasets.
+    goal: Analyze and compare the collected data
+    role: Data Analyst
+    tasks:
+      data_analysis_task:
+        description: Analyze the collected data to compare the performance, efficiency,
+          and user satisfaction of Codestral, Autocoder, and Qwencode.
+        expected_output: A detailed comparison report highlighting strengths and weaknesses
+          of each LLM.
+    tools:
+    - ''
+  report_writer:
+    backstory: Expert in technical writing and report compilation, able to transform
+      complex data into understandable reports.
+    goal: Compile the analysis into a readable report
+    role: Report Writer
+    tasks:
+      report_compilation_task:
+        description: Compile the analysis into a structured report, including charts
+          and summaries for clarity.
+        expected_output: A final report detailing the comparison between Codestral,
+          Autocoder, and Qwencode, ready for presentation.
+    tools:
+    - ''
+dependencies: []

@@ -33,10 +33,11 @@ class LLMProvider(ABC):
         self.system_prompt = system_prompt
         self.user_prompt_template = user_prompt_template
     
-    @abstractmethod
     def generate_qa(self, text: str) -> Optional[str]:
         """Generate Q&A from text using the LLM"""
-        pass
+        if not self.system_prompt or not self.user_prompt_template:
+            raise ValueError("Prompts not set. Please configure them in the UI.")
+        return None
     
     @abstractmethod
     def list_models(self) -> List[str]:
@@ -58,9 +59,6 @@ class OpenAIProvider(LLMProvider):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def generate_qa(self, text: str) -> Optional[str]:
         try:
-            if not self.system_prompt or not self.user_prompt_template:
-                raise ValueError("Prompts not set. Please configure them in the UI.")
-                
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -98,9 +96,6 @@ class OllamaProvider(LLMProvider):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def generate_qa(self, text: str) -> Optional[str]:
         try:
-            if not self.system_prompt or not self.user_prompt_template:
-                raise ValueError("Prompts not set. Please configure them in the UI.")
-                
             # For Ollama, we combine system and user prompts
             full_prompt = f"{self.system_prompt}\n\n{self.user_prompt_template.format(text=text)}"
             
@@ -152,9 +147,6 @@ class DeepseekProvider(LLMProvider):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def generate_qa(self, text: str) -> Optional[str]:
         try:
-            if not self.system_prompt or not self.user_prompt_template:
-                raise ValueError("Prompts not set. Please configure them in the UI.")
-                
             response = requests.post(
                 f"{self.base_url}/v1/chat/completions",
                 headers=self.headers,
