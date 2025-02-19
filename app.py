@@ -3,6 +3,8 @@ import streamlit as st
 from pathlib import Path
 from python import PDFProcessor, OpenAIProvider, OllamaProvider, DeepseekProvider, DocumentProcessor
 from dotenv import load_dotenv
+import tempfile
+import zipfile
 
 # Load environment variables
 load_dotenv()
@@ -15,16 +17,14 @@ st.set_page_config(
 )
 
 # Title and description
-st.title("📚 Document Q&A Extractor")
+st.title("📚 Document Information Extractor")
 st.markdown("""
-This app extracts Information from various document based on the prompt provided. It supports PDF, Excel, Word, and Text file types using LLM providers.
+This app extracts information from various document types using LLM providers.
 Supported formats:
 - PDF documents
 - Excel files (XLSX, XLS)
 - Word documents (DOCX)
 - Text files (TXT, CSV, JSON, XML, MD)
-
-Upload one or more files and get structured Q&A pairs in markdown format.
 """)
 
 def get_provider_models(provider_name: str, config: dict) -> list:
@@ -72,14 +72,14 @@ with st.sidebar:
     st.header("Configuration")
     
     # LLM Provider Selection
-    provider = st.selectbox(
+    provider_name = st.selectbox(
         "Select LLM Provider",
         ["OpenAI", "Ollama", "Deepseek"],
-        help="Choose the AI model provider"
+        help="Choose the AI provider to process your documents"
     )
     
     # Provider-specific configuration
-    if provider == "OpenAI":
+    if provider_name == "OpenAI":
         api_key = st.text_input(
             "OpenAI API Key",
             type="password",
@@ -89,7 +89,7 @@ with st.sidebar:
         llm_config = {"api_key": api_key}
         
         # Fetch and display available models
-        models = get_provider_models(provider, llm_config)
+        models = get_provider_models(provider_name, llm_config)
         selected_model = st.selectbox(
             "Select Model",
             models,
@@ -98,7 +98,7 @@ with st.sidebar:
         )
         llm_config["model"] = selected_model
         
-    elif provider == "Ollama":
+    elif provider_name == "Ollama":
         base_url = st.text_input(
             "Ollama Base URL",
             value="http://localhost:11434",
@@ -108,7 +108,7 @@ with st.sidebar:
         
         # Fetch and display available models
         if base_url:
-            models = get_provider_models(provider, llm_config)
+            models = get_provider_models(provider_name, llm_config)
             selected_model = st.selectbox(
                 "Select Model",
                 models,
@@ -119,7 +119,7 @@ with st.sidebar:
             
             st.info("Make sure Ollama is running and the selected model is pulled.")
         
-    elif provider == "Deepseek":
+    elif provider_name == "Deepseek":
         api_key = st.text_input(
             "Deepseek API Key",
             type="password",
@@ -134,7 +134,7 @@ with st.sidebar:
         llm_config = {"api_key": api_key, "base_url": base_url}
         
         # Display available models
-        models = get_provider_models(provider, llm_config)
+        models = get_provider_models(provider_name, llm_config)
         selected_model = st.selectbox(
             "Select Model",
             models,
@@ -149,12 +149,12 @@ with st.sidebar:
     st.header("Prompt Settings")
     system_prompt = st.text_area(
         "System Prompt",
-        value="Extract questions and answers from the given text.",
+        value="Extract information from the given text.",
         help="The instruction given to the AI about its task"
     )
     user_prompt_template = st.text_area(
         "User Prompt Template",
-        value="Extract all questions and answers from the following text:\n\n{text}\n\nFormat as: Question: ... Answer: ...",
+        value="Extract information from the following text:\n\n{text}\n\nFormat as: ...",
         help="The template for processing text. Use {text} as placeholder for the document content"
     )
     
@@ -166,14 +166,14 @@ with st.sidebar:
     3. Choose a model from the available options
     4. Upload one or more files
     5. Click 'Process Files'
-    6. Download the generated Q&A
+    6. Download the generated information
     """)
 
 # Main content area
 def main():
     # File uploader
     uploaded_files = st.file_uploader(
-        "Upload documents", 
+        "Upload document files",
         type=["pdf", "xlsx", "xls", "docx", "txt", "csv", "json", "xml", "md"],
         accept_multiple_files=True,
         help="Select one or more files to process"
@@ -181,24 +181,24 @@ def main():
     
     if uploaded_files:
         # Validate configuration
-        if provider == "OpenAI" and not llm_config["api_key"]:
+        if provider_name == "OpenAI" and not llm_config["api_key"]:
             st.warning("Please enter your OpenAI API key in the sidebar.")
             return
-        elif provider == "Deepseek" and (not llm_config["api_key"] or not llm_config["base_url"]):
+        elif provider_name == "Deepseek" and (not llm_config["api_key"] or not llm_config["base_url"]):
             st.warning("Please enter your Deepseek API key and base URL in the sidebar.")
             return
-        elif provider == "Ollama" and not llm_config["base_url"]:
+        elif provider_name == "Ollama" and not llm_config["base_url"]:
             st.warning("Please enter the Ollama base URL in the sidebar.")
             return
         
-        if st.button("Process Files"):
+        if st.button("Process Files", type="primary"):
             # Initialize appropriate provider
             try:
-                if provider == "OpenAI":
+                if provider_name == "OpenAI":
                     llm_provider = OpenAIProvider(llm_config["api_key"], llm_config["model"])
-                elif provider == "Ollama":
+                elif provider_name == "Ollama":
                     llm_provider = OllamaProvider(llm_config["base_url"], llm_config["model"])
-                elif provider == "Deepseek":
+                elif provider_name == "Deepseek":
                     llm_provider = DeepseekProvider(llm_config["api_key"], llm_config["base_url"], llm_config["model"])
                 
                 # Set custom prompts
@@ -206,19 +206,17 @@ def main():
                 
                 processor = DocumentProcessor(llm_provider)
                 
-                # Create directories
-                temp_dir = Path("temp_files")
-                output_dir = Path("output_qa")
-                temp_dir.mkdir(exist_ok=True)
-                output_dir.mkdir(exist_ok=True)
-                
-                # Process each uploaded file
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                try:
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_dir = Path(temp_dir)
+                    output_dir = temp_dir / "output"
+                    output_dir.mkdir()
+                    
+                    # Initialize progress
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    # Process each file
                     for i, uploaded_file in enumerate(uploaded_files):
-                        # Save uploaded file temporarily
                         progress = (i) / len(uploaded_files)
                         progress_bar.progress(progress)
                         status_text.text(f"Processing {uploaded_file.name}...")
@@ -230,45 +228,40 @@ def main():
                         # Extract text
                         text = processor.process_file(str(temp_path))
                         if text:
-                            # Generate Q&A
-                            qa_text = processor.extract_questions_answers(text)
-                            if qa_text:
+                            # Process with LLM
+                            result = processor.extract_information(text)
+                            if result:
                                 # Save to markdown
                                 output_path = output_dir / f"{temp_path.stem}.md"
-                                if processor.format_to_markdown(qa_text, str(output_path)):
+                                if processor.format_to_markdown(result, str(output_path)):
                                     st.success(f"Successfully processed {uploaded_file.name}")
                                 else:
                                     st.error(f"Failed to save results for {uploaded_file.name}")
                             else:
-                                st.error(f"Failed to generate Q&A for {uploaded_file.name}")
+                                st.error(f"Failed to process {uploaded_file.name}")
                         else:
                             st.error(f"Failed to extract text from {uploaded_file.name}")
-                        
-                        # Clean up temp file
-                        temp_path.unlink()
                     
+                    # Complete progress
                     progress_bar.progress(1.0)
                     status_text.text("Processing complete!")
                     
-                    # Show download links
-                    st.markdown("### Download Results")
-                    for output_file in output_dir.glob("*.md"):
-                        with open(output_file, "r", encoding="utf-8") as f:
-                            content = f.read()
-                        st.download_button(
-                            f"Download {output_file.name}",
-                            content,
-                            file_name=output_file.name,
-                            mime="text/markdown"
-                        )
-                
-                except Exception as e:
-                    st.error(f"Error processing files: {str(e)}")
-                finally:
-                    # Clean up temp directory
-                    for temp_file in temp_dir.glob("*"):
-                        temp_file.unlink()
+                    # Create zip file of results
+                    zip_path = temp_dir / "results.zip"
+                    with zipfile.ZipFile(zip_path, 'w') as zipf:
+                        for markdown_file in output_dir.glob('*.md'):
+                            zipf.write(markdown_file, markdown_file.name)
                     
+                    # Offer download
+                    with open(zip_path, 'rb') as f:
+                        st.download_button(
+                            "Download Results",
+                            f,
+                            file_name="extracted_information.zip",
+                            mime="application/zip",
+                            help="Download all processed files as a ZIP archive"
+                        )
+            
             except Exception as e:
                 st.error(f"Error initializing provider: {str(e)}")
     
@@ -277,7 +270,7 @@ def main():
         st.markdown("""
         ### About this app
         
-        This application uses various LLM providers to extract questions and answers from document files.
+        This application uses various LLM providers to extract information from document files.
         
         **Supported Providers:**
         - OpenAI (GPT-3.5, GPT-4)
@@ -295,7 +288,7 @@ def main():
         - Dynamic model selection
         - Upload multiple files
         - Automatic text extraction
-        - AI-powered Q&A generation
+        - AI-powered information extraction
         - Markdown output format
         
         **Limitations:**
@@ -306,13 +299,12 @@ def main():
           - Network speed
         
         ### Output Format
-        The generated Q&A will be in markdown format:
+        The generated information will be in markdown format:
         
         ```markdown
-        # Extracted Questions and Answers
+        # Extracted Information
         
-        ## Question: ...
-        Answer: ...
+        ...
         ```
         """)
 

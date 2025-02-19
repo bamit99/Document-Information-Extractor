@@ -5,6 +5,7 @@ from typing import Optional, List, Dict
 from pathlib import Path
 from abc import ABC, abstractmethod
 import requests
+import openpyxl
 
 import fitz  # PyMuPDF
 import pandas as pd
@@ -231,17 +232,81 @@ class PDFProcessor(FileProcessor):
 class ExcelProcessor(FileProcessor):
     def extract_text(self, file_path: str) -> Optional[str]:
         try:
-            # Read all sheets
-            df_dict = pd.read_excel(file_path, sheet_name=None)
-            text = ""
+            # Get Excel workbook properties
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+            properties = wb.properties
+            
+            # Start with document metadata
+            text = "Document Information:\n"
+            if properties.title:
+                text += f"Title: {properties.title}\n"
+            if properties.subject:
+                text += f"Subject: {properties.subject}\n"
+            if properties.creator:
+                text += f"Author: {properties.creator}\n"
+            if properties.created:
+                text += f"Created: {properties.created}\n"
+            text += "\n"
+            
+            # Get all sheet names from the workbook
+            sheet_names = wb.sheetnames
             
             # Process each sheet
-            for sheet_name, df in df_dict.items():
+            for sheet_name in sheet_names:
+                sheet = wb[sheet_name]
                 text += f"\nSheet: {sheet_name}\n"
-                # Convert dataframe to string representation
-                text += df.to_string(index=False) + "\n"
+                
+                # Add sheet properties if available
+                if sheet.sheet_properties.tabColor:
+                    text += f"Tab Color: {sheet.sheet_properties.tabColor.rgb}\n"
+                
+                try:
+                    # Read the specific sheet using pandas
+                    df = pd.read_excel(file_path, sheet_name=sheet_name)
+                    
+                    # Get column headers
+                    headers = df.columns.tolist()
+                    text += f"\nColumns: {', '.join(str(h) for h in headers)}\n\n"
+                    
+                    # Check for merged cells and note them
+                    merged_ranges = list(sheet.merged_cells.ranges)
+                    if merged_ranges:
+                        text += "Merged Cells:\n"
+                        for cell_range in merged_ranges:
+                            text += f"- {cell_range}\n"
+                        text += "\n"
+                    
+                    # Process the data
+                    if not df.empty:
+                        # Get basic statistics for numeric columns
+                        numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
+                        if not numeric_cols.empty:
+                            text += "Numeric Column Statistics:\n"
+                            for col in numeric_cols:
+                                stats = df[col].describe()
+                                text += f"{col}:\n"
+                                text += f"  - Average: {stats['mean']:.2f}\n"
+                                text += f"  - Min: {stats['min']:.2f}\n"
+                                text += f"  - Max: {stats['max']:.2f}\n"
+                            text += "\n"
+                        
+                        # Convert dataframe to string, preserving structure
+                        text += "Data:\n"
+                        text += df.to_string(index=False, na_rep='N/A') + "\n"
+                        
+                        # Add row count
+                        text += f"\nTotal Rows: {len(df)}\n"
+                    else:
+                        text += "Sheet is empty\n"
+                except Exception as sheet_error:
+                    logger.error(f"Error processing sheet {sheet_name}: {str(sheet_error)}")
+                    text += f"Error processing sheet: {str(sheet_error)}\n"
+                
+                text += "\n" + "-"*50 + "\n"
             
+            wb.close()
             return text
+            
         except Exception as e:
             logger.error(f"Error extracting text from Excel {file_path}: {str(e)}")
             return None
@@ -299,36 +364,44 @@ class DocumentProcessor:
             logger.error(f"Error processing file {file_path}: {str(e)}")
             return None
 
-    def extract_questions_answers(self, text: str) -> Optional[str]:
+    def extract_information(self, text: str) -> Optional[str]:
         """
-        Extract questions and answers from text using the configured LLM provider.
+        Extract information from text using the configured LLM provider.
         
         Args:
             text: Input text to process
             
         Returns:
-            Formatted string of questions and answers
+            Formatted string with extracted information
         """
-        return self.llm_provider.generate_qa(text)
-
-    def format_to_markdown(self, questions_answers: str, output_path: str) -> bool:
+        try:
+            return self.llm_provider.generate_qa(text)
+        except Exception as e:
+            logger.error(f"Error in LLM processing: {str(e)}")
+            return None
+            
+    def format_to_markdown(self, content: str, output_path: str) -> bool:
         """
-        Format extracted questions and answers into Markdown.
+        Format extracted content into Markdown.
         
         Args:
-            questions_answers: String containing Q&A pairs
+            content: String containing extracted information
             output_path: Path to save the markdown file
             
         Returns:
             True if successful, False otherwise
         """
         try:
-            with open(output_path, 'w', encoding='utf-8') as md_file:
-                md_file.write("# Extracted Questions and Answers\n\n")
-                md_file.write(questions_answers)
+            # Get just the filename without extension
+            filename = Path(output_path).stem
+            
+            with open(output_path, "w", encoding="utf-8") as f:
+                # Write the content as is, since it should already be in markdown format
+                # from the LLM's response
+                f.write(content)
             return True
         except Exception as e:
-            logger.error(f"Error writing markdown file: {str(e)}")
+            logger.error(f"Error saving markdown: {str(e)}")
             return False
 
     def get_files(self, input_path: str) -> List[str]:
@@ -379,10 +452,10 @@ class DocumentProcessor:
                     logger.error(f"Skipping {file} due to text extraction failure")
                     continue
                 
-                # Extract Q&A
-                questions_answers = self.extract_questions_answers(text)
-                if not questions_answers:
-                    logger.error(f"Skipping {file} due to Q&A extraction failure")
+                # Extract information
+                information = self.extract_information(text)
+                if not information:
+                    logger.error(f"Skipping {file} due to information extraction failure")
                     continue
                 
                 # Save to markdown
@@ -390,7 +463,7 @@ class DocumentProcessor:
                     output_folder,
                     Path(file).stem + '.md'
                 )
-                if self.format_to_markdown(questions_answers, output_path):
+                if self.format_to_markdown(information, output_path):
                     logger.info(f"Successfully processed {file} -> {output_path}")
                 else:
                     logger.error(f"Failed to save markdown for {file}")
@@ -401,7 +474,7 @@ class DocumentProcessor:
 
 def main():
     """Main entry point of the script."""
-    parser = argparse.ArgumentParser(description='Extract Q&A from files using LLM')
+    parser = argparse.ArgumentParser(description='Extract information from files using LLM')
     parser.add_argument('input_path', help='Path to file or directory containing files')
     parser.add_argument('output_folder', help='Path to output directory for markdown files')
     parser.add_argument('--env-file', help='Path to .env file', default='.env')

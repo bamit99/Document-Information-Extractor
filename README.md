@@ -1,29 +1,45 @@
-# PDF Q&A Extractor
+# Document Information Extractor
 
-A powerful tool that extracts questions and answers from PDF documents using various LLM providers (OpenAI, Ollama, Deepseek). Built with Streamlit for an intuitive user interface.
+A Streamlit-based application that extracts and processes information from various document types using Large Language Models (LLMs).
 
 ## Features
 
-- 🔄 Multiple LLM Provider Support
+- **Multi-Format Support**
+  - PDF documents (.pdf)
+  - Excel files (.xlsx, .xls)
+  - Word documents (.docx)
+  - Text files (.txt, .csv, .json, .xml, .md)
+
+- **Multiple LLM Providers**
   - OpenAI (GPT-3.5, GPT-4)
   - Ollama (Local models)
   - Deepseek
-- 📝 Customizable Prompts
-  - System prompt customization
-  - User prompt template editing
-- 📁 Batch Processing
-  - Process multiple PDFs at once
-  - Size limit of 10MB per file
-- 💾 Structured Output
-  - Markdown formatted Q&A pairs
-  - Organized output directory structure
+
+- **Rich Document Processing**
+  - Automatic file type detection
+  - Comprehensive Excel processing (all sheets, formulas, metadata)
+  - PDF text extraction
+  - Word document parsing
+  - Batch file processing
+
+- **Customizable Prompts**
+  - Configurable system prompts
+  - Custom user prompt templates
+  - Dynamic prompt variables
+
+- **User-Friendly Interface**
+  - Progress tracking
+  - Error handling
+  - Batch download of results
+  - Provider configuration
+  - Model selection
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone <your-repo-url>
-cd langflow_workflows
+git clone <repository-url>
+cd document-extractor
 ```
 
 2. Install dependencies:
@@ -31,11 +47,12 @@ cd langflow_workflows
 pip install -r requirements.txt
 ```
 
-3. Set up your environment variables (optional):
-```bash
-# Create a .env file
-OPENAI_API_KEY=your_api_key
-DEEPSEEK_API_KEY=your_api_key
+3. Set up environment variables in `.env`:
+```env
+OPENAI_API_KEY=your_openai_key
+DEEPSEEK_API_KEY=your_deepseek_key
+DEEPSEEK_BASE_URL=your_deepseek_url
+OLLAMA_BASE_URL=http://localhost:11434
 ```
 
 ## Usage
@@ -45,57 +62,68 @@ DEEPSEEK_API_KEY=your_api_key
 streamlit run app.py
 ```
 
-2. Configure your preferred LLM provider:
-   - OpenAI: Enter your API key
-   - Ollama: Ensure local instance is running (default: http://localhost:11434)
-   - Deepseek: Enter API key and base URL
+2. Configure the application:
+   - Select an LLM provider
+   - Enter necessary API keys
+   - Choose a model
+   - Customize prompts if needed
 
-3. Customize prompts (optional):
-   - Modify system prompt to change AI behavior
-   - Edit user prompt template for custom formatting
-   - Use {text} placeholder for PDF content in template
+3. Upload files:
+   - Select one or more supported files
+   - Click "Process Files"
+   - Download the results
 
-4. Upload PDFs and process:
-   - Select one or more PDF files
-   - Click "Process PDFs"
-   - Find results in the output_qa directory
+## File Processing Details
 
-## Project Structure
+### Excel Files
+- Processes all sheets, including renamed ones
+- Extracts document metadata
+- Preserves table structure
+- Handles merged cells
+- Provides statistical summaries for numeric data
 
-```
-langflow_workflows/
-├── app.py              # Streamlit UI and main application
-├── python.py           # Core logic and LLM providers
-├── requirements.txt    # Project dependencies
-├── temp_pdfs/         # Temporary storage for uploaded PDFs
-└── output_qa/         # Generated Q&A markdown files
-```
+### PDF Files
+- Extracts text from all pages
+- Maintains document structure
+- Handles various PDF formats
 
-## LLM Provider Setup
+### Word Documents
+- Processes text content
+- Extracts tables and lists
+- Maintains document structure
 
-### OpenAI
-- Requires API key
-- Supports GPT-3.5 and GPT-4 models
-- Set key in UI or .env file
+### Text Files
+- Supports various encodings
+- Preserves formatting
+- Handles structured formats (JSON, XML)
 
-### Ollama
-- Requires local installation
-- Run Ollama server before using
-- Supports various open-source models
+## Output Format
 
-### Deepseek
-- Requires API key and base URL
-- Supports multiple model variants
-- Set credentials in UI or .env file
+Results are provided in markdown format, making them easy to read and process further. The output structure is determined by your prompt and the LLM's response.
+
+## Dependencies
+
+- `streamlit`: Web interface
+- `pandas`: Data processing
+- `openpyxl`: Excel file handling
+- `python-docx`: Word document processing
+- `PyMuPDF`: PDF processing
+- `python-dotenv`: Environment management
+- `requests`: API communication
+- `openai`: OpenAI API integration
+
+## Error Handling
+
+- File size limits (10MB per file)
+- Invalid file formats
+- API connection issues
+- Processing errors
+- Missing configurations
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+[Your License Here]
