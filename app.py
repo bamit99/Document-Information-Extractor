@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from pathlib import Path
-from python import PDFProcessor, OpenAIProvider, OllamaProvider, DeepseekProvider
+from python import PDFProcessor, OpenAIProvider, OllamaProvider, DeepseekProvider, DocumentProcessor
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -9,16 +9,22 @@ load_dotenv()
 
 # Page config
 st.set_page_config(
-    page_title="PDF Q&A Extractor",
+    page_title="Document Q&A Extractor",
     page_icon="📚",
     layout="wide"
 )
 
 # Title and description
-st.title("📚 PDF Q&A Extractor")
+st.title("📚 Document Q&A Extractor")
 st.markdown("""
-This app extracts questions and answers from PDF documents using various LLM providers.
-Upload a PDF file or multiple files and get structured Q&A pairs in markdown format.
+This app extracts questions and answers from various document types using LLM providers.
+Supported formats:
+- PDF documents
+- Excel files (XLSX, XLS)
+- Word documents (DOCX)
+- Text files (TXT, CSV, JSON, XML, MD)
+
+Upload one or more files and get structured Q&A pairs in markdown format.
 """)
 
 def get_provider_models(provider_name: str, config: dict) -> list:
@@ -149,7 +155,7 @@ with st.sidebar:
     user_prompt_template = st.text_area(
         "User Prompt Template",
         value="Extract all questions and answers from the following text:\n\n{text}\n\nFormat as: Question: ... Answer: ...",
-        help="The template for processing text. Use {text} as placeholder for the PDF content"
+        help="The template for processing text. Use {text} as placeholder for the document content"
     )
     
     # Add usage instructions
@@ -158,8 +164,8 @@ with st.sidebar:
     1. Select your preferred LLM provider
     2. Configure the provider settings
     3. Choose a model from the available options
-    4. Upload one or more PDF files
-    5. Click 'Process PDFs'
+    4. Upload one or more files
+    5. Click 'Process Files'
     6. Download the generated Q&A
     """)
 
@@ -167,9 +173,10 @@ with st.sidebar:
 def main():
     # File uploader
     uploaded_files = st.file_uploader(
-        "Upload PDF files", 
-        type="pdf",
-        accept_multiple_files=True
+        "Upload documents", 
+        type=["pdf", "xlsx", "xls", "docx", "txt", "csv", "json", "xml", "md"],
+        accept_multiple_files=True,
+        help="Select one or more files to process"
     )
     
     if uploaded_files:
@@ -184,7 +191,7 @@ def main():
             st.warning("Please enter the Ollama base URL in the sidebar.")
             return
         
-        if st.button("Process PDFs"):
+        if st.button("Process Files"):
             # Initialize appropriate provider
             try:
                 if provider == "OpenAI":
@@ -197,10 +204,10 @@ def main():
                 # Set custom prompts
                 llm_provider.set_prompts(system_prompt, user_prompt_template)
                 
-                processor = PDFProcessor(llm_provider)
+                processor = DocumentProcessor(llm_provider)
                 
                 # Create directories
-                temp_dir = Path("temp_pdfs")
+                temp_dir = Path("temp_files")
                 output_dir = Path("output_qa")
                 temp_dir.mkdir(exist_ok=True)
                 output_dir.mkdir(exist_ok=True)
@@ -221,60 +228,56 @@ def main():
                             f.write(uploaded_file.getbuffer())
                         
                         # Extract text
-                        text = processor.extract_text_from_pdf(str(temp_path))
+                        text = processor.process_file(str(temp_path))
                         if text:
-                            # Extract Q&A
-                            qa = processor.extract_questions_answers(text)
-                            if qa:
-                                # Save markdown
-                                output_path = output_dir / f"{uploaded_file.name.rsplit('.', 1)[0]}.md"
-                                if processor.format_to_markdown(qa, str(output_path)):
+                            # Generate Q&A
+                            qa_text = processor.extract_questions_answers(text)
+                            if qa_text:
+                                # Save to markdown
+                                output_path = output_dir / f"{temp_path.stem}.md"
+                                if processor.format_to_markdown(qa_text, str(output_path)):
                                     st.success(f"Successfully processed {uploaded_file.name}")
-                                    
-                                    # Display the Q&A
-                                    with st.expander(f"Q&A from {uploaded_file.name}", expanded=True):
-                                        st.markdown(qa)
-                                    
-                                    # Add download button
-                                    with open(output_path, "r", encoding="utf-8") as f:
-                                        st.download_button(
-                                            label=f"Download Q&A for {uploaded_file.name}",
-                                            data=f.read(),
-                                            file_name=output_path.name,
-                                            mime="text/markdown"
-                                        )
                                 else:
                                     st.error(f"Failed to save results for {uploaded_file.name}")
                             else:
-                                st.error(f"Failed to extract Q&A from {uploaded_file.name}")
+                                st.error(f"Failed to generate Q&A for {uploaded_file.name}")
                         else:
                             st.error(f"Failed to extract text from {uploaded_file.name}")
                         
-                        # Clean up temporary file
+                        # Clean up temp file
                         temp_path.unlink()
                     
                     progress_bar.progress(1.0)
-                    status_text.text("All files processed!")
+                    status_text.text("Processing complete!")
                     
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+                    # Show download links
+                    st.markdown("### Download Results")
+                    for output_file in output_dir.glob("*.md"):
+                        with open(output_file, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        st.download_button(
+                            f"Download {output_file.name}",
+                            content,
+                            file_name=output_file.name,
+                            mime="text/markdown"
+                        )
                 
+                except Exception as e:
+                    st.error(f"Error processing files: {str(e)}")
                 finally:
-                    # Clean up temporary directory
-                    if temp_dir.exists():
-                        for file in temp_dir.iterdir():
-                            file.unlink()
-                        temp_dir.rmdir()
-            
+                    # Clean up temp directory
+                    for temp_file in temp_dir.glob("*"):
+                        temp_file.unlink()
+                    
             except Exception as e:
-                st.error(f"Failed to initialize LLM provider: {str(e)}")
+                st.error(f"Error initializing provider: {str(e)}")
     
     # Add documentation
     with st.expander("📖 Documentation"):
         st.markdown("""
         ### About this app
         
-        This application uses various LLM providers to extract questions and answers from PDF documents.
+        This application uses various LLM providers to extract questions and answers from document files.
         
         **Supported Providers:**
         
@@ -296,14 +299,14 @@ def main():
         **Features:**
         - Multiple LLM provider support
         - Dynamic model selection
-        - Upload multiple PDF files
+        - Upload multiple files
         - Automatic text extraction
         - AI-powered Q&A generation
         - Markdown output format
         - Download results
         
         **Limitations:**
-        - PDF file size limit: 10MB
+        - File size limit: 10MB
         - Processing time depends on:
           - File size and content
           - Selected provider and model
@@ -316,7 +319,7 @@ def main():
         
         ## Question: ...
         Answer: ...
-        ```
+        """
         """)
 
 if __name__ == "__main__":

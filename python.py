@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 import requests
 
 import fitz  # PyMuPDF
+import pandas as pd
+from docx import Document
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 from dotenv import load_dotenv
@@ -175,33 +177,114 @@ class DeepseekProvider(LLMProvider):
             logger.error(f"Error fetching Deepseek models: {str(e)}")
             return []
 
-class PDFProcessor:
-    def __init__(self, llm_provider: LLMProvider):
-        """Initialize PDFProcessor with an LLM provider."""
-        self.llm_provider = llm_provider
-        
-    def extract_text_from_pdf(self, pdf_path: str) -> Optional[str]:
-        """
-        Extract text from a PDF file.
-        
-        Args:
-            pdf_path: Path to the PDF file
-            
-        Returns:
-            Extracted text or None if extraction fails
-        """
+class FileProcessor:
+    """Base class for processing different file types"""
+    
+    @staticmethod
+    def get_processor(file_path: str) -> 'FileProcessor':
+        """Factory method to get appropriate processor based on file extension"""
+        ext = file_path.lower().split('.')[-1]
+        if ext == 'pdf':
+            return PDFProcessor()
+        elif ext in ['xlsx', 'xls']:
+            return ExcelProcessor()
+        elif ext == 'docx':
+            return WordProcessor()
+        elif ext in ['txt', 'csv', 'json', 'xml', 'md']:
+            return TextProcessor()
+        else:
+            raise ValueError(f"Unsupported file type: {ext}")
+    
+    @abstractmethod
+    def extract_text(self, file_path: str) -> Optional[str]:
+        """Extract text from file"""
+        pass
+
+class PDFProcessor(FileProcessor):
+    def extract_text(self, file_path: str) -> Optional[str]:
         try:
             text = ""
-            with fitz.open(pdf_path) as doc:
+            with fitz.open(file_path) as doc:
                 # Check file size
-                if os.path.getsize(pdf_path) > 10_000_000:  # 10MB limit
-                    raise ValueError("PDF file too large (>10MB)")
+                if os.path.getsize(file_path) > 10_000_000:  # 10MB limit
+                    raise ValueError("File too large (>10MB)")
                     
                 for page in doc:
                     text += page.get_text()
             return text
         except Exception as e:
-            logger.error(f"Error extracting text from PDF {pdf_path}: {str(e)}")
+            logger.error(f"Error extracting text from PDF {file_path}: {str(e)}")
+            return None
+
+class ExcelProcessor(FileProcessor):
+    def extract_text(self, file_path: str) -> Optional[str]:
+        try:
+            # Read all sheets
+            df_dict = pd.read_excel(file_path, sheet_name=None)
+            text = ""
+            
+            # Process each sheet
+            for sheet_name, df in df_dict.items():
+                text += f"\nSheet: {sheet_name}\n"
+                # Convert dataframe to string representation
+                text += df.to_string(index=False) + "\n"
+            
+            return text
+        except Exception as e:
+            logger.error(f"Error extracting text from Excel {file_path}: {str(e)}")
+            return None
+
+class WordProcessor(FileProcessor):
+    def extract_text(self, file_path: str) -> Optional[str]:
+        try:
+            doc = Document(file_path)
+            text = ""
+            
+            # Extract text from paragraphs
+            for para in doc.paragraphs:
+                text += para.text + "\n"
+            
+            # Extract text from tables
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        text += cell.text + "\t"
+                    text += "\n"
+            
+            return text
+        except Exception as e:
+            logger.error(f"Error extracting text from Word document {file_path}: {str(e)}")
+            return None
+
+class TextProcessor(FileProcessor):
+    def extract_text(self, file_path: str) -> Optional[str]:
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                return file.read()
+        except Exception as e:
+            logger.error(f"Error extracting text from text file {file_path}: {str(e)}")
+            return None
+
+class DocumentProcessor:
+    def __init__(self, llm_provider: LLMProvider):
+        """Initialize DocumentProcessor with an LLM provider."""
+        self.llm_provider = llm_provider
+        
+    def process_file(self, file_path: str) -> Optional[str]:
+        """
+        Process a file and extract text.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            Extracted text or None if extraction fails
+        """
+        try:
+            processor = FileProcessor.get_processor(file_path)
+            return processor.extract_text(file_path)
+        except Exception as e:
+            logger.error(f"Error processing file {file_path}: {str(e)}")
             return None
 
     def extract_questions_answers(self, text: str) -> Optional[str]:
@@ -230,86 +313,84 @@ class PDFProcessor:
         try:
             with open(output_path, 'w', encoding='utf-8') as md_file:
                 md_file.write("# Extracted Questions and Answers\n\n")
-                for qa in questions_answers.split("\n\n"):
-                    if "Question:" in qa and "Answer:" in qa:
-                        md_file.write(f"## {qa}\n\n")
+                md_file.write(questions_answers)
             return True
         except Exception as e:
-            logger.error(f"Error writing markdown file {output_path}: {str(e)}")
+            logger.error(f"Error writing markdown file: {str(e)}")
             return False
 
-    def get_pdf_files(self, input_path: str) -> List[str]:
+    def get_files(self, input_path: str) -> List[str]:
         """
-        Get list of PDF files from input path.
+        Get list of files from input path.
         
         Args:
-            input_path: Path to PDF file or directory
+            input_path: Path to file or directory
             
         Returns:
-            List of PDF file paths
+            List of file paths
         """
         input_path = Path(input_path)
-        if input_path.is_file() and input_path.suffix.lower() == '.pdf':
+        if input_path.is_file():
             return [str(input_path)]
         elif input_path.is_dir():
-            return [str(p) for p in input_path.glob('**/*.pdf')]
+            return [str(p) for p in input_path.glob('**/*')]
         else:
-            raise ValueError("Invalid input path. Provide a PDF file or a folder containing PDFs.")
+            raise ValueError("Invalid input path. Provide a file or a folder.")
 
-    def process_pdfs(self, input_path: str, output_folder: str) -> None:
+    def process_files(self, input_path: str, output_folder: str) -> None:
         """
-        Process PDFs and generate Markdown files.
+        Process files and generate Markdown files.
         
         Args:
-            input_path: Path to PDF file or directory
+            input_path: Path to file or directory
             output_folder: Path to output directory
         """
         # Create output directory if it doesn't exist
         os.makedirs(output_folder, exist_ok=True)
         
         try:
-            pdf_files = self.get_pdf_files(input_path)
-            total_files = len(pdf_files)
+            files = self.get_files(input_path)
+            total_files = len(files)
             
             if total_files == 0:
-                logger.warning("No PDF files found to process")
+                logger.warning("No files found to process")
                 return
                 
-            logger.info(f"Found {total_files} PDF files to process")
+            logger.info(f"Found {total_files} files to process")
             
-            for i, pdf_file in enumerate(pdf_files, 1):
-                logger.info(f"Processing file {i}/{total_files}: {pdf_file}")
+            for i, file in enumerate(files, 1):
+                logger.info(f"Processing file {i}/{total_files}: {file}")
                 
                 # Extract text
-                text = self.extract_text_from_pdf(pdf_file)
+                text = self.process_file(file)
                 if not text:
-                    logger.error(f"Skipping {pdf_file} due to text extraction failure")
+                    logger.error(f"Skipping {file} due to text extraction failure")
                     continue
                 
                 # Extract Q&A
                 questions_answers = self.extract_questions_answers(text)
                 if not questions_answers:
-                    logger.error(f"Skipping {pdf_file} due to Q&A extraction failure")
+                    logger.error(f"Skipping {file} due to Q&A extraction failure")
                     continue
                 
                 # Save to markdown
                 output_path = os.path.join(
                     output_folder,
-                    Path(pdf_file).stem + '.md'
+                    Path(file).stem + '.md'
                 )
                 if self.format_to_markdown(questions_answers, output_path):
-                    logger.info(f"Successfully processed {pdf_file} -> {output_path}")
+                    logger.info(f"Successfully processed {file} -> {output_path}")
                 else:
-                    logger.error(f"Failed to save markdown for {pdf_file}")
+                    logger.error(f"Failed to save markdown for {file}")
                     
         except Exception as e:
-            logger.error(f"Error processing PDFs: {str(e)}")
+            logger.error(f"Error processing files: {str(e)}")
             raise
 
 def main():
     """Main entry point of the script."""
-    parser = argparse.ArgumentParser(description='Extract Q&A from PDF files using LLM')
-    parser.add_argument('input_path', help='Path to PDF file or directory containing PDFs')
+    parser = argparse.ArgumentParser(description='Extract Q&A from files using LLM')
+    parser.add_argument('input_path', help='Path to file or directory containing files')
     parser.add_argument('output_folder', help='Path to output directory for markdown files')
     parser.add_argument('--env-file', help='Path to .env file', default='.env')
     parser.add_argument('--provider', help='LLM provider (openai, ollama, deepseek)', default='openai')
@@ -346,8 +427,8 @@ def main():
         if args.user_prompt_template:
             provider.set_prompts(provider.system_prompt, args.user_prompt_template)
         
-        processor = PDFProcessor(provider)
-        processor.process_pdfs(args.input_path, args.output_folder)
+        processor = DocumentProcessor(provider)
+        processor.process_files(args.input_path, args.output_folder)
         logger.info("Processing completed successfully")
     except Exception as e:
         logger.error(f"Processing failed: {str(e)}")
