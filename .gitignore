@@ -41,3 +41,8 @@ output_qa/
 
 # Logs
 *.log
+
+# Additional files and directories to ignore
+*.zip
+processed_files/
+*.md
