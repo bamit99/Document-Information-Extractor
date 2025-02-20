@@ -40,7 +40,7 @@ A Streamlit-based application that extracts and processes information from vario
 1. Clone this repository:
    ```bash
    git clone <repository-url>
-   cd Question-Answer
+   cd Document-Information-Extractor
    ```
 
 2. Install required packages:
