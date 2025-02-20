@@ -301,7 +301,7 @@ def main():
             # If user prompt is empty, use just the {text} placeholder
             if not st.session_state.user_prompt:
                 st.session_state.user_prompt = "{text}"
-                st.info("Using default text placeholder since User Prompt is empty.")
+                st.info("User Prompt was empty. Defaulting to '{text}'.")
             elif "{text}" not in st.session_state.user_prompt:
                 st.error("User Prompt must contain {text} placeholder for document content.")
                 return
