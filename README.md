@@ -1,60 +1,94 @@
 # Document Information Extractor
 
-A Streamlit-based application that extracts and processes information from various document types using Large Language Models (LLMs).
+A powerful document analysis tool that extracts information from various document types using Large Language Models (LLMs). This application supports multiple LLM providers and can process various document formats to generate structured information.
 
 ## Features
 
-- **Multi-Format Support**
-  - PDF documents (.pdf)
-  - Excel files (.xlsx, .xls)
-  - Word documents (.docx)
-  - Text files (.txt, .csv, .json, .xml, .md)
+- **Multiple Document Format Support**:
+  - PDF documents (*.pdf)
+  - Excel files (*.xlsx, *.xls)
+  - Word documents (*.docx)
+  - Text files (*.txt, *.csv, *.json, *.xml, *.md)
 
-- **Multiple LLM Providers**
+- **LLM Provider Support**:
   - OpenAI (GPT-3.5, GPT-4)
-  - Ollama (Local models)
+  - Azure OpenAI
+  - OpenRouter
+  - Mistral AI
+  - Together AI
+  - Anyscale
+  - Ollama (local models)
   - Deepseek
+  - Any OpenAI API-compatible provider
 
-- **Rich Document Processing**
-  - Automatic file type detection
-  - Comprehensive Excel processing (all sheets, formulas, metadata)
-  - PDF text extraction
-  - Word document parsing
-  - Structured text processing
-
-- **Customizable Prompts**
-  - Pre-defined prompt templates in `Prompts` directory
-  - Custom prompt creation
-  - System and User prompt separation
-  - Default text placeholder support
-
-- **Automatic File Management**
-  - Automatic saving to `processed_files` directory
-  - Timestamp-based unique filenames
-  - Preview processed content in UI
-  - Bulk download as ZIP
+- **Features**:
+  - Dynamic model listing for each provider
+  - Customizable system and user prompts
+  - Batch processing support
   - Markdown output format
+  - Beautiful Streamlit web interface
 
 ## Installation
 
-1. Clone this repository:
+1. Clone the repository:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/yourusername/Document-Information-Extractor.git
    cd Document-Information-Extractor
    ```
 
-2. Install required packages:
+2. Create a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Set up environment variables in `.env`:
-   ```plaintext
-   OPENAI_API_KEY=your_openai_key
-   DEEPSEEK_API_KEY=your_deepseek_key
-   DEEPSEEK_BASE_URL=your_deepseek_url
-   OLLAMA_BASE_URL=your_ollama_url
+## Configuration
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
    ```
+
+2. Configure your providers in the `.env` file:
+
+   ```bash
+   # OpenAI Configuration
+   OPENAI_API_KEY=your_openai_api_key_here
+
+   # Azure OpenAI Configuration
+   PROVIDER_AZURE_NAME=Azure OpenAI
+   PROVIDER_AZURE_API_KEY=your_azure_api_key_here
+   PROVIDER_AZURE_BASE_URL=https://your-resource.openai.azure.com
+   PROVIDER_AZURE_MODEL=gpt-35-turbo
+   PROVIDER_AZURE_API_VERSION=2024-02-15-preview
+
+   # Add more providers as needed
+   ```
+
+### Adding a New Provider
+
+To add a new OpenAI-compatible provider, add the following to your `.env` file:
+
+```bash
+PROVIDER_<NAME>_NAME=Display Name
+PROVIDER_<NAME>_API_KEY=your_api_key_here
+PROVIDER_<NAME>_BASE_URL=https://api.provider.com/v1
+PROVIDER_<NAME>_MODEL=default-model-name
+PROVIDER_<NAME>_API_VERSION=api-version  # Optional
+```
+
+Example for Mistral AI:
+```bash
+PROVIDER_MISTRAL_NAME=Mistral AI
+PROVIDER_MISTRAL_API_KEY=your_mistral_api_key_here
+PROVIDER_MISTRAL_BASE_URL=https://api.mistral.ai/v1
+PROVIDER_MISTRAL_MODEL=mistral-medium
+```
 
 ## Usage
 
@@ -63,67 +97,48 @@ A Streamlit-based application that extracts and processes information from vario
    streamlit run app.py
    ```
 
-2. Configure the application:
-   - Select your preferred LLM provider
-   - Configure provider settings (API keys, model selection)
-   - Choose or create prompts for processing
+2. Open your web browser and navigate to `http://localhost:8501`
 
-3. Process documents:
-   - Upload one or more supported files
-   - Click "Process Files"
-   - View results in the UI
-   - Find processed files in the `processed_files` directory
+3. In the sidebar:
+   - Select your LLM provider
+   - Configure the provider settings
+   - Choose a model from the available options
 
-## Prompt Templates
+4. Upload one or more supported documents
 
-The application supports customizable prompt templates located in the `Prompts` directory:
+5. Click 'Process Files' to start the extraction
 
-```
-Prompts/
-├── analyze_paper/
-│   ├── system.md
-│   └── user.md
-├── analyze_patent/
-│   └── ...
-└── ...
-```
+The application will process each file and generate structured information in Markdown format.
 
-Each template contains:
-- `system.md`: Instructions for the AI's behavior
-- `user.md`: Template for processing document content
+## Customizing Prompts
 
-To create a new template:
-1. Create a new directory in `Prompts/`
-2. Add `system.md` and `user.md` files
-3. Use `{text}` placeholder in `user.md` for document content
+You can customize the system and user prompts for each provider in the Prompts directory:
 
-## Output Format
-
-Processed files are saved as Markdown files with:
-- Original filename
-- Timestamp
-- Extracted information
-- Formatted content based on prompts
-
-Example: `document_20250219_183000.md`
-
-## Dependencies
-
-- Python 3.8+
-- See `requirements.txt` for full list
+- `Prompts/<template_name>/system.md`: Contains the system instructions
+- `Prompts/<template_name>/user.md`: Contains the user prompt template
 
 ## Error Handling
 
-The application includes:
-- Input validation
-- Error reporting
-- Progress tracking
-- Automatic file cleanup
+The application includes robust error handling:
+- Retries for API calls with exponential backoff
+- Fallback mechanisms for model listing
+- Informative error messages in the UI
+- Comprehensive logging
 
-## Notes
+## Contributing
 
-- Files are automatically saved in the `processed_files` directory
-- Each processed file has a unique timestamp
-- Preview processed content before downloading
-- Download individual files or all as ZIP
-- Empty user prompts default to `{text}` placeholder
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- OpenAI for the ChatGPT API
+- Streamlit for the web interface
+- All supported LLM providers for their APIs

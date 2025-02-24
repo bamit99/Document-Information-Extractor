@@ -85,6 +85,161 @@ class OpenAIProvider(LLMProvider):
             logger.error(f"Error listing OpenAI models: {str(e)}")
             return []
 
+class OpenAICompatibleProvider(LLMProvider):
+    """Generic provider for OpenAI API-compatible services"""
+    
+    def __init__(self, api_key: str, base_url: str, model: str = "", api_version: str = None, provider_name: str = ""):
+        super().__init__()
+        try:
+            # Configure OpenAI client with custom base URL
+            client_kwargs = {
+                "api_key": api_key,
+                "base_url": base_url
+            }
+            
+            # Add API version if provided (needed for Azure)
+            if api_version:
+                client_kwargs["default_query"] = {"api-version": api_version}
+            
+            self.client = OpenAI(**client_kwargs)
+            self.model = model
+            self.base_url = base_url
+            self.api_key = api_key
+            self.api_version = api_version
+            self.provider_name = provider_name.lower() if provider_name else ""
+            
+        except Exception as e:
+            logger.error(f"Error initializing OpenAI-compatible client: {str(e)}")
+            raise
+    
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def generate_qa(self, text: str) -> Optional[str]:
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": self.user_prompt_template.format(text=text)}
+                ]
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"Error in OpenAI-compatible API call: {str(e)}")
+            return None
+    
+    def _list_openrouter_models(self) -> List[str]:
+        """List models from OpenRouter API"""
+        try:
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            response = requests.get(
+                "https://openrouter.ai/api/v1/models",
+                headers=headers
+            )
+            response.raise_for_status()
+            data = response.json()
+            return [model["id"] for model in data.get("data", [])]
+        except Exception as e:
+            logger.error(f"Error listing OpenRouter models: {str(e)}")
+            return []
+
+    def _list_azure_models(self) -> List[str]:
+        """List models from Azure OpenAI"""
+        try:
+            # Azure requires api-version parameter
+            url = f"{self.base_url}/openai/deployments"
+            if self.api_version:
+                url += f"?api-version={self.api_version}"
+            headers = {"api-key": self.api_key}
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            return [model["id"] for model in data.get("data", [])]
+        except Exception as e:
+            logger.error(f"Error listing Azure models: {str(e)}")
+            return []
+
+    def _list_mistral_models(self) -> List[str]:
+        """List models from Mistral AI"""
+        try:
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            response = requests.get(
+                "https://api.mistral.ai/v1/models",
+                headers=headers
+            )
+            response.raise_for_status()
+            data = response.json()
+            return [model["id"] for model in data.get("data", [])]
+        except Exception as e:
+            logger.error(f"Error listing Mistral models: {str(e)}")
+            return []
+
+    def _list_together_models(self) -> List[str]:
+        """List models from Together AI"""
+        try:
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            response = requests.get(
+                "https://api.together.xyz/models",
+                headers=headers
+            )
+            response.raise_for_status()
+            data = response.json()
+            # Filter for models that support chat completions
+            return [
+                model["name"] for model in data
+                if model.get("task") == "text-generation" and 
+                model.get("display_type", "").lower() in ["chat", "completion"]
+            ]
+        except Exception as e:
+            logger.error(f"Error listing Together AI models: {str(e)}")
+            return []
+
+    def _list_anyscale_models(self) -> List[str]:
+        """List models from Anyscale"""
+        try:
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            response = requests.get(
+                "https://api.endpoints.anyscale.com/v1/models",
+                headers=headers
+            )
+            response.raise_for_status()
+            data = response.json()
+            return [model["id"] for model in data.get("data", [])]
+        except Exception as e:
+            logger.error(f"Error listing Anyscale models: {str(e)}")
+            return []
+
+    def list_models(self) -> List[str]:
+        """List available models from the provider"""
+        try:
+            # Try provider-specific model listing first
+            if "openrouter" in self.provider_name:
+                return self._list_openrouter_models()
+            elif "azure" in self.provider_name:
+                return self._list_azure_models()
+            elif "mistral" in self.provider_name:
+                return self._list_mistral_models()
+            elif "together" in self.provider_name:
+                return self._list_together_models()
+            elif "anyscale" in self.provider_name:
+                return self._list_anyscale_models()
+            
+            # Try standard OpenAI-style model listing
+            try:
+                models = self.client.models.list()
+                return sorted([model.id for model in models])
+            except:
+                # If model listing fails and we have a default model, return it
+                if self.model:
+                    return [self.model]
+                logger.warning("Model listing not supported and no default model specified")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error listing models: {str(e)}")
+            if self.model:
+                return [self.model]
+            return []
+
 class OllamaProvider(LLMProvider):
     """Ollama API provider"""
     
@@ -470,9 +625,10 @@ def main():
     parser.add_argument('input_path', help='Path to file or directory containing files')
     parser.add_argument('output_folder', help='Path to output directory for markdown files')
     parser.add_argument('--env-file', help='Path to .env file', default='.env')
-    parser.add_argument('--provider', help='LLM provider (openai, ollama, deepseek)', default='openai')
-    parser.add_argument('--base-url', help='Base URL for API (required for Ollama and Deepseek)')
+    parser.add_argument('--provider', help='LLM provider (openai, ollama, deepseek, openai-compatible)', default='openai')
+    parser.add_argument('--base-url', help='Base URL for API (required for Ollama, Deepseek, and OpenAI-compatible)')
     parser.add_argument('--model', help='Model name for the provider')
+    parser.add_argument('--api-version', help='API version for the provider (required for Azure)')
     parser.add_argument('--system-prompt', help='Custom system prompt for the provider')
     parser.add_argument('--user-prompt-template', help='Custom user prompt template for the provider')
     args = parser.parse_args()
@@ -496,6 +652,11 @@ def main():
             if not api_key or not args.base_url:
                 raise ValueError("DEEPSEEK_API_KEY and base-url are required for Deepseek provider")
             provider = DeepseekProvider(api_key, args.base_url, args.model or "deepseek-chat")
+        elif args.provider == 'openai-compatible':
+            api_key = os.getenv('OPENAI_COMPATIBLE_API_KEY')
+            if not api_key or not args.base_url:
+                raise ValueError("OPENAI_COMPATIBLE_API_KEY and base-url are required for OpenAI-compatible provider")
+            provider = OpenAICompatibleProvider(api_key, args.base_url, args.model or "", args.api_version, args.provider)
         else:
             raise ValueError(f"Unsupported provider: {args.provider}")
         

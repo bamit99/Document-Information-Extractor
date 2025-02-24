@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from pathlib import Path
-from python import PDFProcessor, OpenAIProvider, OllamaProvider, DeepseekProvider, DocumentProcessor
+from python import PDFProcessor, OpenAIProvider, OllamaProvider, DeepseekProvider, DocumentProcessor, OpenAICompatibleProvider
 from dotenv import load_dotenv
 import tempfile
 import zipfile
@@ -42,6 +42,16 @@ def get_provider_models(provider_name: str, config: dict) -> list:
                 st.sidebar.warning("No models found. Please check your API key.")
             return models
             
+        elif provider_name == "OpenAI Compatible":
+            if not config.get("api_key") or not config.get("base_url"):
+                st.sidebar.warning("API key and base URL are required to fetch available models")
+                return []
+            provider = OpenAICompatibleProvider(config["api_key"], config["base_url"], config["model"], config.get("api_version"), config["provider_name"])
+            models = provider.list_models()
+            if not models:
+                st.sidebar.warning("No models found. Please check your API credentials.")
+            return models
+            
         elif provider_name == "Ollama":
             if not config.get("base_url"):
                 st.sidebar.warning("Ollama base URL is required to fetch available models")
@@ -68,6 +78,33 @@ def get_provider_models(provider_name: str, config: dict) -> list:
         return []
     
     return []
+
+def load_compatible_providers() -> dict:
+    """Load OpenAI-compatible providers from environment variables"""
+    providers = {}
+    
+    # Find all provider configurations in environment variables
+    for key in os.environ:
+        if key.startswith('PROVIDER_') and key.endswith('_NAME'):
+            provider_prefix = key[:-5]  # Remove '_NAME'
+            provider_name = os.getenv(key)
+            
+            # Get provider configuration
+            config = {
+                "name": provider_name,
+                "api_key": os.getenv(f"{provider_prefix}_API_KEY"),
+                "base_url": os.getenv(f"{provider_prefix}_BASE_URL"),
+                "model": os.getenv(f"{provider_prefix}_MODEL"),
+                "api_version": os.getenv(f"{provider_prefix}_API_VERSION"),
+                "provider_id": provider_prefix.replace('PROVIDER_', '').lower()
+            }
+            
+            # Only add provider if required fields are present
+            if config["api_key"] and config["base_url"]:
+                provider_id = provider_prefix.replace('PROVIDER_', '').lower()
+                providers[provider_id] = config
+    
+    return providers
 
 def load_prompt_template(template_name: str) -> tuple[str, str]:
     """Load system and user prompts from template directory"""
@@ -115,6 +152,8 @@ if 'llm_config' not in st.session_state:
     st.session_state.llm_config = {}
 if 'output_dir' not in st.session_state:
     st.session_state.output_dir = "processed_files"
+if 'compatible_providers' not in st.session_state:
+    st.session_state.compatible_providers = load_compatible_providers()
 
 # Create output directory if it doesn't exist
 output_dir = Path(st.session_state.output_dir)
@@ -125,9 +164,11 @@ with st.sidebar:
     st.header("Configuration")
     
     # LLM Provider Selection
+    available_providers = ["OpenAI", "Ollama", "Deepseek"] + \
+        [f"Compatible: {config['name']}" for config in st.session_state.compatible_providers.values()]
     provider_name = st.selectbox(
         "Select LLM Provider",
-        ["OpenAI", "Ollama", "Deepseek"],
+        available_providers,
         key="provider_name"
     )
     
@@ -151,6 +192,51 @@ with st.sidebar:
         )
         llm_config["model"] = selected_model
         
+    elif provider_name == "OpenAI Compatible":
+        with st.expander("Provider Configuration", expanded=True):
+            provider_name_input = st.text_input(
+                "Provider Name",
+                value="",
+                help="Enter a name for this provider (e.g., OpenRouter, Mistral)"
+            )
+            base_url = st.text_input(
+                "Base URL",
+                value="",
+                help="API base URL (e.g., https://api.openrouter.ai/api)"
+            )
+            api_key = st.text_input(
+                "API Key",
+                type="password",
+                value="",
+                help="Your API key for the provider"
+            )
+            default_model = st.text_input(
+                "Default Model",
+                value="",
+                help="Default model ID for this provider (optional)"
+            )
+            
+        llm_config = {
+            "api_key": api_key,
+            "base_url": base_url,
+            "model": default_model,
+            "provider_name": provider_name_input
+        }
+        
+        # Attempt to fetch models if configuration is complete
+        if api_key and base_url:
+            models = get_provider_models("OpenAI Compatible", llm_config)
+            if models:
+                selected_model = st.selectbox(
+                    "Select Model",
+                    models,
+                    index=0 if models else -1,
+                    help=f"Choose the {provider_name_input} model to use"
+                )
+                llm_config["model"] = selected_model
+            else:
+                st.warning("Could not fetch models. Using default model if specified.")
+                
     elif provider_name == "Ollama":
         base_url = st.text_input(
             "Ollama Base URL",
@@ -195,6 +281,56 @@ with st.sidebar:
             help="Choose the Deepseek model to use"
         )
         llm_config["model"] = selected_model
+        
+    elif provider_name.startswith("Compatible: "):
+        # Get provider configuration
+        provider_display_name = provider_name.replace("Compatible: ", "")
+        provider_config = next(
+            (config for config in st.session_state.compatible_providers.values() 
+             if config["name"] == provider_display_name),
+            None
+        )
+        
+        if provider_config:
+            with st.expander(f"{provider_display_name} Configuration", expanded=True):
+                st.text_input("Base URL", value=provider_config["base_url"], disabled=True)
+                if provider_config.get("api_version"):
+                    st.text_input("API Version", value=provider_config["api_version"], disabled=True)
+                
+                # Show default model if configured
+                if provider_config.get("model"):
+                    st.text_input("Default Model", value=provider_config["model"], disabled=True)
+            
+            llm_config = {
+                "api_key": provider_config["api_key"],
+                "base_url": provider_config["base_url"],
+                "model": provider_config["model"],
+                "api_version": provider_config.get("api_version"),
+                "provider_name": provider_config["provider_id"]
+            }
+            
+            # Attempt to fetch models
+            try:
+                provider = OpenAICompatibleProvider(
+                    llm_config["api_key"],
+                    llm_config["base_url"],
+                    llm_config["model"],
+                    llm_config.get("api_version"),
+                    llm_config["provider_name"]
+                )
+                models = provider.list_models()
+                if models:
+                    selected_model = st.selectbox(
+                        "Select Model",
+                        models,
+                        index=models.index(llm_config["model"]) if llm_config["model"] in models else 0,
+                        help=f"Choose the {provider_display_name} model to use"
+                    )
+                    llm_config["model"] = selected_model
+                else:
+                    st.info(f"Using default model: {llm_config['model']}")
+            except Exception as e:
+                st.warning(f"Could not fetch models. Using default model: {llm_config['model']}")
     
     st.info("Your configuration is securely stored for this session only.")
     
@@ -314,6 +450,14 @@ def main():
                     llm_provider = OllamaProvider(llm_config["base_url"], llm_config["model"])
                 elif provider_name == "Deepseek":
                     llm_provider = DeepseekProvider(llm_config["api_key"], llm_config["base_url"], llm_config["model"])
+                elif provider_name.startswith("Compatible: "):
+                    llm_provider = OpenAICompatibleProvider(
+                        llm_config["api_key"],
+                        llm_config["base_url"],
+                        llm_config["model"],
+                        llm_config.get("api_version"),
+                        llm_config["provider_name"]
+                    )
                 
                 # Set custom prompts immediately after initialization
                 llm_provider.set_prompts(st.session_state.system_prompt, st.session_state.user_prompt)
@@ -409,6 +553,7 @@ def main():
         - OpenAI (GPT-3.5, GPT-4)
         - Ollama (Local models)
         - Deepseek
+        - OpenAI Compatible
         
         **Supported File Types:**
         - PDF documents (.pdf)

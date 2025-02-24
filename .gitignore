@@ -44,5 +44,12 @@ output_qa/
 
 # Additional files and directories to ignore
 *.zip
+
+# Processed files
 processed_files/
-*.md
+processed_files/**/*
+temp_files/
+temp_files/**/*
+
+# Generated markdown files (but not README.md)
+output_qa/**/*.md
