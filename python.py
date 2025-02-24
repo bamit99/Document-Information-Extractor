@@ -91,11 +91,20 @@ class OpenAICompatibleProvider(LLMProvider):
     def __init__(self, api_key: str, base_url: str, model: str = "", api_version: str = None, provider_name: str = ""):
         super().__init__()
         try:
-            # Configure OpenAI client with custom base URL
+            # Configure OpenAI client with custom base URL and timeout settings
             client_kwargs = {
                 "api_key": api_key,
-                "base_url": base_url
+                "base_url": base_url,
+                "timeout": 60.0,  # Increase timeout to 60 seconds
+                "max_retries": 3  # Set max retries for the client
             }
+            
+            # Special handling for OpenRouter
+            if "openrouter" in base_url.lower():
+                client_kwargs["default_headers"] = {
+                    "HTTP-Referer": "https://github.com/yourusername/Document-Information-Extractor",
+                    "X-Title": "Document-Information-Extractor"
+                }
             
             # Add API version if provided (needed for Azure)
             if api_version:
@@ -124,120 +133,70 @@ class OpenAICompatibleProvider(LLMProvider):
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
-            logger.error(f"Error in OpenAI-compatible API call: {str(e)}")
+            if "connection" in str(e).lower():
+                logger.error(f"Connection error in OpenAI-compatible API call. Please check your network connection and the base_url: {self.base_url}. Error: {str(e)}")
+            else:
+                logger.error(f"Error in OpenAI-compatible API call: {str(e)}")
             return None
     
     def _list_openrouter_models(self) -> List[str]:
         """List models from OpenRouter API"""
         try:
-            headers = {"Authorization": f"Bearer {self.api_key}"}
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "HTTP-Referer": "https://github.com/yourusername/Document-Information-Extractor",
+                "X-Title": "Document-Information-Extractor"
+            }
+            
+            # Use openrouter.ai domain directly
             response = requests.get(
                 "https://openrouter.ai/api/v1/models",
-                headers=headers
+                headers=headers,
+                timeout=30,  # 30 second timeout for model listing
+                verify=True  # Ensure SSL verification is enabled
             )
             response.raise_for_status()
             data = response.json()
             return [model["id"] for model in data.get("data", [])]
-        except Exception as e:
-            logger.error(f"Error listing OpenRouter models: {str(e)}")
-            return []
-
-    def _list_azure_models(self) -> List[str]:
-        """List models from Azure OpenAI"""
-        try:
-            # Azure requires api-version parameter
-            url = f"{self.base_url}/openai/deployments"
-            if self.api_version:
-                url += f"?api-version={self.api_version}"
-            headers = {"api-key": self.api_key}
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            return [model["id"] for model in data.get("data", [])]
-        except Exception as e:
-            logger.error(f"Error listing Azure models: {str(e)}")
-            return []
-
-    def _list_mistral_models(self) -> List[str]:
-        """List models from Mistral AI"""
-        try:
-            headers = {"Authorization": f"Bearer {self.api_key}"}
-            response = requests.get(
-                "https://api.mistral.ai/v1/models",
-                headers=headers
-            )
-            response.raise_for_status()
-            data = response.json()
-            return [model["id"] for model in data.get("data", [])]
-        except Exception as e:
-            logger.error(f"Error listing Mistral models: {str(e)}")
-            return []
-
-    def _list_together_models(self) -> List[str]:
-        """List models from Together AI"""
-        try:
-            headers = {"Authorization": f"Bearer {self.api_key}"}
-            response = requests.get(
-                "https://api.together.xyz/models",
-                headers=headers
-            )
-            response.raise_for_status()
-            data = response.json()
-            # Filter for models that support chat completions
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error when listing OpenRouter models. Please check your internet connection and DNS settings. Error: {str(e)}")
+            # Return a default list of commonly available models
             return [
-                model["name"] for model in data
-                if model.get("task") == "text-generation" and 
-                model.get("display_type", "").lower() in ["chat", "completion"]
+                "openai/gpt-3.5-turbo",
+                "openai/gpt-4",
+                "anthropic/claude-2",
+                "google/palm-2",
+                "meta-llama/llama-2-70b-chat"
             ]
         except Exception as e:
-            logger.error(f"Error listing Together AI models: {str(e)}")
-            return []
-
-    def _list_anyscale_models(self) -> List[str]:
-        """List models from Anyscale"""
-        try:
-            headers = {"Authorization": f"Bearer {self.api_key}"}
-            response = requests.get(
-                "https://api.endpoints.anyscale.com/v1/models",
-                headers=headers
-            )
-            response.raise_for_status()
-            data = response.json()
-            return [model["id"] for model in data.get("data", [])]
-        except Exception as e:
-            logger.error(f"Error listing Anyscale models: {str(e)}")
-            return []
-
+            logger.error(f"Error listing OpenRouter models: {str(e)}")
+            return ["openai/gpt-3.5-turbo"]  # Return default model as fallback
+    
     def list_models(self) -> List[str]:
         """List available models from the provider"""
         try:
-            # Try provider-specific model listing first
-            if "openrouter" in self.provider_name:
+            # Use provider-specific model listing for known providers
+            if "openrouter" in self.base_url.lower():
                 return self._list_openrouter_models()
-            elif "azure" in self.provider_name:
+            elif "azure" in self.base_url.lower():
                 return self._list_azure_models()
-            elif "mistral" in self.provider_name:
+            elif "mistral" in self.base_url.lower():
                 return self._list_mistral_models()
-            elif "together" in self.provider_name:
+            elif "together" in self.base_url.lower():
                 return self._list_together_models()
-            elif "anyscale" in self.provider_name:
+            elif "anyscale" in self.base_url.lower():
                 return self._list_anyscale_models()
             
-            # Try standard OpenAI-style model listing
+            # Fallback to standard OpenAI model listing
             try:
                 models = self.client.models.list()
-                return sorted([model.id for model in models])
-            except:
-                # If model listing fails and we have a default model, return it
-                if self.model:
-                    return [self.model]
-                logger.warning("Model listing not supported and no default model specified")
+                return [model.id for model in models.data]
+            except Exception as e:
+                logger.error(f"Error listing models using standard OpenAI endpoint: {str(e)}")
                 return []
                 
         except Exception as e:
-            logger.error(f"Error listing models: {str(e)}")
-            if self.model:
-                return [self.model]
+            logger.error(f"Error in list_models: {str(e)}")
             return []
 
 class OllamaProvider(LLMProvider):
