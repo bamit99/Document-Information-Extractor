@@ -156,8 +156,8 @@ if 'compatible_providers' not in st.session_state:
     st.session_state.compatible_providers = load_compatible_providers()
 
 # Create output directory if it doesn't exist
-output_dir = Path(st.session_state.output_dir)
-output_dir.mkdir(exist_ok=True)
+output_base_dir = Path("output")
+output_base_dir.mkdir(exist_ok=True)
 
 # Sidebar for configuration
 with st.sidebar:
@@ -340,26 +340,35 @@ with st.sidebar:
     # Add template selection
     templates = get_prompt_templates()
     if templates:
+        # Initialize selected_prompt_template if not in session state
+        if 'selected_prompt_template' not in st.session_state:
+            st.session_state.selected_prompt_template = "Custom"
+            
         selected_template = st.selectbox(
             "Select Prompt Template",
             ["Custom"] + templates,
+            key="selected_prompt_template",
             help="Choose a predefined prompt template or use custom prompts"
         )
         
         if selected_template != "Custom":
             system_prompt_template, user_prompt_template = load_prompt_template(selected_template)
+            st.session_state.system_prompt = system_prompt_template
+            st.session_state.user_prompt = user_prompt_template
+            st.session_state.last_template = selected_template  # Store last used template
+            st.info(f"Loaded template: {selected_template}")
             
             # Display loaded prompts in text areas, allowing for editing
             system_prompt = st.text_area(
                 "System Prompt",
-                value=system_prompt_template,
+                value=st.session_state.system_prompt,
                 key="system_prompt",
                 help="The instruction given to the AI about its task"
             )
             
             user_prompt = st.text_area(
                 "User Prompt Template",
-                value=user_prompt_template,
+                value=st.session_state.user_prompt,
                 key="user_prompt",
                 help="The template for processing text. Use {text} as placeholder for the document content"
             )
@@ -408,6 +417,10 @@ with st.sidebar:
 
 # Main content area
 def main():
+    # Create output directory if it doesn't exist
+    output_base_dir = Path("output")
+    output_base_dir.mkdir(exist_ok=True)
+    
     # File uploader
     uploaded_files = st.file_uploader(
         "Upload document files",
@@ -441,6 +454,19 @@ def main():
             elif "{text}" not in st.session_state.user_prompt:
                 st.error("User Prompt must contain {text} placeholder for document content.")
                 return
+
+            # Create batch directory with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Get prompt template name or use 'custom' if not using a template
+            prompt_name = st.session_state.get('selected_prompt_template', 'Custom')
+            if prompt_name == 'Custom' and 'last_template' in st.session_state:
+                prompt_name = st.session_state.last_template
+            prompt_name = prompt_name.lower().replace(' ', '_')
+            
+            # Create directory structure: output/prompt_name/batch_timestamp/
+            batch_dir = output_base_dir / prompt_name / timestamp
+            batch_dir.mkdir(parents=True, exist_ok=True)
 
             # Initialize appropriate provider
             try:
@@ -489,14 +515,13 @@ def main():
                             # Process with LLM
                             result = processor.extract_information(text)
                             if result:
-                                # Save to markdown in output directory
-                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                output_filename = f"{Path(uploaded_file.name).stem}_{timestamp}.md"
-                                output_path = output_dir / output_filename
+                                # Save to markdown in batch directory
+                                output_filename = f"{Path(uploaded_file.name).stem}.md"
+                                output_path = batch_dir / output_filename
                                 
                                 if processor.format_to_markdown(result, str(output_path)):
-                                    st.success(f"Successfully processed {uploaded_file.name}")
                                     processed_files.append(output_path)
+                                    st.success(f"Successfully processed {uploaded_file.name}")
                                 else:
                                     st.error(f"Failed to save results for {uploaded_file.name}")
                             else:
@@ -513,7 +538,7 @@ def main():
                 
                 if processed_files:
                     st.markdown("### Results")
-                    st.markdown(f"Files have been saved to: `{output_dir}`")
+                    st.markdown(f"Files have been saved to: `{batch_dir}`")
                     
                     # Show individual file previews
                     for output_file in processed_files:

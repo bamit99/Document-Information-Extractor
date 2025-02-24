@@ -102,7 +102,7 @@ class OpenAICompatibleProvider(LLMProvider):
             # Special handling for OpenRouter
             if "openrouter" in base_url.lower():
                 client_kwargs["default_headers"] = {
-                    "HTTP-Referer": "https://github.com/yourusername/Document-Information-Extractor",
+                    "HTTP-Referer": "https://github.com/bamit99/Document-Information-Extractor",
                     "X-Title": "Document-Information-Extractor"
                 }
             
