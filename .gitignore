@@ -32,7 +32,8 @@ ENV/
 .vscode/
 *.swp
 *.swo
-CascadeProjects.code-workspace
+*.code-workspace
+
 # Project specific
 temp_pdfs/
 output_qa/
@@ -45,10 +46,11 @@ output_qa/
 # Additional files and directories to ignore
 *.zip
 
-# Processed files
-processed_files/**/*
-temp_files/
-temp_files/**/*
+# Processed files - keep directory but ignore contents
+processed_files/*
+!processed_files/.gitkeep
+temp_files/*
+!temp_files/.gitkeep
 
 # Generated markdown files (but not README.md)
 output_qa/**/*.md
