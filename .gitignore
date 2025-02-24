@@ -32,7 +32,7 @@ ENV/
 .vscode/
 *.swp
 *.swo
-
+CascadeProjects.code-workspace
 # Project specific
 temp_pdfs/
 output_qa/
@@ -46,7 +46,6 @@ output_qa/
 *.zip
 
 # Processed files
-processed_files/
 processed_files/**/*
 temp_files/
 temp_files/**/*
