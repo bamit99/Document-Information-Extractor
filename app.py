@@ -113,7 +113,7 @@ def load_prompt_template(template_name: str) -> tuple[str, str]:
     user_path = os.path.join(base_path, "user.md")
     
     system_prompt = ""
-    user_prompt = ""
+    user_prompt = "{text}"
     
     try:
         if os.path.exists(system_path):
