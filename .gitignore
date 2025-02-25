@@ -54,3 +54,4 @@ temp_files/*
 
 # Generated markdown files (but not README.md)
 output_qa/**/*.md
+/output
