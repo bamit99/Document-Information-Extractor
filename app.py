@@ -5,8 +5,10 @@ from python import PDFProcessor, OpenAIProvider, OllamaProvider, DeepseekProvide
 from dotenv import load_dotenv
 import tempfile
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 import io
+import tiktoken  # Add tiktoken for token counting
+import time
 
 # Load environment variables
 load_dotenv()
@@ -17,6 +19,99 @@ st.set_page_config(
     page_icon="📚",
     layout="wide"
 )
+
+# Initialize session state for errors
+if 'errors' not in st.session_state:
+    st.session_state.errors = []
+
+def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
+    """Count the number of tokens in a text string"""
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+        return len(encoding.encode(text))
+    except Exception:
+        # Fallback to approximate count if model-specific tokenizer not available
+        return len(text.split()) * 1.3  # Rough approximation
+
+def check_token_limit(text: str, model: str, provider: str) -> tuple[bool, int]:
+    """Check if text exceeds token limit for given model"""
+    token_count = count_tokens(text, model)
+    
+    # Define token limits for different providers/models
+    token_limits = {
+        "OpenAI": {
+            "gpt-3.5-turbo": 16385,
+            "gpt-4": 8192,
+            "gpt-4-32k": 32768,
+            "default": 16385
+        },
+        "Deepseek": {
+            "default": 65536
+        },
+        "default": 16385
+    }
+    
+    # Get token limit for the model
+    if provider in token_limits:
+        limit = token_limits[provider].get(model, token_limits[provider]["default"])
+    else:
+        limit = token_limits["default"]
+    
+    return token_count <= limit, token_count
+
+def format_time(seconds: float) -> str:
+    """Format time duration in a human-readable format"""
+    duration = timedelta(seconds=seconds)
+    
+    hours = duration.seconds // 3600
+    minutes = (duration.seconds % 3600) // 60
+    seconds = duration.seconds % 60
+    milliseconds = duration.microseconds // 1000
+    
+    if hours > 0:
+        return f"{hours}h {minutes}m {seconds}s"
+    elif minutes > 0:
+        return f"{minutes}m {seconds}s"
+    elif seconds > 0:
+        return f"{seconds}s {milliseconds}ms"
+    else:
+        return f"{milliseconds}ms"
+
+def estimate_remaining_time(processed_count: int, total_count: int, elapsed_time: float) -> float:
+    """Estimate remaining time based on current progress"""
+    if processed_count == 0:
+        return 0
+    avg_time_per_file = elapsed_time / processed_count
+    remaining_files = total_count - processed_count
+    return avg_time_per_file * remaining_files
+
+class ProcessingTimer:
+    """Helper class to track processing phases"""
+    def __init__(self):
+        self.start_time = time.time()
+        self.phases = {}
+        self.current_phase = None
+        
+    def start_phase(self, phase_name: str):
+        """Start timing a new phase"""
+        self.current_phase = phase_name
+        if phase_name not in self.phases:
+            self.phases[phase_name] = 0
+        self._phase_start = time.time()
+    
+    def end_phase(self):
+        """End timing the current phase"""
+        if self.current_phase:
+            self.phases[self.current_phase] += time.time() - self._phase_start
+            self.current_phase = None
+    
+    def get_total_time(self) -> float:
+        """Get total elapsed time"""
+        return time.time() - self.start_time
+    
+    def get_phase_times(self) -> dict:
+        """Get times for all phases"""
+        return {phase: duration for phase, duration in self.phases.items()}
 
 # Title and description
 st.title("📚 Document Information Extractor")
@@ -154,10 +249,21 @@ if 'output_dir' not in st.session_state:
     st.session_state.output_dir = "processed_files"
 if 'compatible_providers' not in st.session_state:
     st.session_state.compatible_providers = load_compatible_providers()
+if 'processing_times' not in st.session_state:
+    st.session_state.processing_times = {}
 
 # Create output directory if it doesn't exist
 output_base_dir = Path("output")
 output_base_dir.mkdir(exist_ok=True)
+
+# Display any stored errors at the top
+if st.session_state.errors:
+    with st.container():
+        st.error("⚠️ Recent Errors:")
+        for error in st.session_state.errors[-5:]:  # Show last 5 errors
+            st.warning(error)
+        if st.button("Clear Errors"):
+            st.session_state.errors = []
 
 # Sidebar for configuration
 with st.sidebar:
@@ -432,27 +538,26 @@ def main():
     if uploaded_files:
         # Validate configuration
         if provider_name == "OpenAI" and not llm_config["api_key"]:
-            st.warning("Please enter your OpenAI API key in the sidebar.")
+            st.error("⚠️ Configuration Error: Please enter your OpenAI API key in the sidebar.")
             return
         elif provider_name == "Deepseek" and (not llm_config["api_key"] or not llm_config["base_url"]):
-            st.warning("Please enter your Deepseek API key and base URL in the sidebar.")
+            st.error("⚠️ Configuration Error: Please enter your Deepseek API key and base URL in the sidebar.")
             return
         elif provider_name == "Ollama" and not llm_config["base_url"]:
-            st.warning("Please enter the Ollama base URL in the sidebar.")
+            st.error("⚠️ Configuration Error: Please enter the Ollama base URL in the sidebar.")
             return
         
         if st.button("Process Files", type="primary"):
             # Validate prompts
             if not st.session_state.system_prompt:
-                st.error("Please configure System Prompt before processing files.")
+                st.error("⚠️ Configuration Error: Please configure System Prompt before processing files.")
                 return
 
-            # If user prompt is empty, use just the {text} placeholder
             if not st.session_state.user_prompt:
                 st.session_state.user_prompt = "{text}"
-                st.info("User Prompt was empty. Defaulting to '{text}'.")
+                st.info("ℹ️ User Prompt was empty. Defaulting to '{text}'.")
             elif "{text}" not in st.session_state.user_prompt:
-                st.error("User Prompt must contain {text} placeholder for document content.")
+                st.error("⚠️ Configuration Error: User Prompt must contain {text} placeholder for document content.")
                 return
 
             # Create batch directory with timestamp
@@ -492,16 +597,37 @@ def main():
                 
                 # Store processed files for later use
                 processed_files = []
+                failed_files = []
                 
-                # Initialize progress
+                # Initialize progress and timing metrics
                 progress_bar = st.progress(0)
                 status_text = st.empty()
+                metrics_container = st.container()
+                
+                # Create columns for metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    current_file_time = st.empty()
+                with col2:
+                    total_time = st.empty()
+                with col3:
+                    remaining_time = st.empty()
                 
                 # Process each file
+                batch_timer = ProcessingTimer()
                 for i, uploaded_file in enumerate(uploaded_files):
+                    file_timer = ProcessingTimer()
                     progress = (i) / len(uploaded_files)
                     progress_bar.progress(progress)
+                    
+                    # Update status and timing information
                     status_text.text(f"Processing {uploaded_file.name}...")
+                    if i > 0:
+                        est_remaining = estimate_remaining_time(i, len(uploaded_files), batch_timer.get_total_time())
+                        remaining_time.metric(
+                            "Estimated Time Remaining",
+                            format_time(est_remaining)
+                        )
                     
                     # Create a temporary file for the uploaded content
                     with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as temp_file:
@@ -510,24 +636,79 @@ def main():
                     
                     try:
                         # Extract text
+                        file_timer.start_phase("text_extraction")
                         text = processor.process_file(temp_path)
+                        file_timer.end_phase()
+                        
                         if text:
+                            # Check token limit before processing
+                            file_timer.start_phase("token_check")
+                            within_limit, token_count = check_token_limit(text, llm_config["model"], provider_name)
+                            file_timer.end_phase()
+                            
+                            if not within_limit:
+                                error_msg = f"⚠️ Token limit exceeded for {uploaded_file.name}: {token_count} tokens"
+                                st.warning(error_msg)
+                                st.session_state.errors.append(error_msg)
+                                failed_files.append((uploaded_file.name, "Token limit exceeded"))
+                                continue
+                            
                             # Process with LLM
+                            file_timer.start_phase("llm_processing")
                             result = processor.extract_information(text)
+                            file_timer.end_phase()
+                            
                             if result:
-                                # Save to markdown in batch directory
+                                # Save to markdown
+                                file_timer.start_phase("file_saving")
                                 output_filename = f"{Path(uploaded_file.name).stem}.md"
                                 output_path = batch_dir / output_filename
                                 
                                 if processor.format_to_markdown(result, str(output_path)):
                                     processed_files.append(output_path)
-                                    st.success(f"Successfully processed {uploaded_file.name}")
+                                    # Store processing time and phases
+                                    st.session_state.processing_times[uploaded_file.name] = {
+                                        'total_time': file_timer.get_total_time(),
+                                        'phases': file_timer.get_phase_times()
+                                    }
+                                    
+                                    # Update timing displays
+                                    with metrics_container:
+                                        phase_times = file_timer.get_phase_times()
+                                        st.markdown("#### Current File Processing Phases")
+                                        for phase, duration in phase_times.items():
+                                            st.text(f"{phase.replace('_', ' ').title()}: {format_time(duration)}")
+                                    
+                                    current_file_time.metric(
+                                        "Current File Total Time",
+                                        format_time(file_timer.get_total_time())
+                                    )
+                                    total_time.metric(
+                                        "Total Processing Time",
+                                        format_time(batch_timer.get_total_time())
+                                    )
+                                    
+                                    st.success(f"✅ Successfully processed {uploaded_file.name}")
                                 else:
-                                    st.error(f"Failed to save results for {uploaded_file.name}")
+                                    error_msg = f"Failed to save results for {uploaded_file.name}"
+                                    st.error(error_msg)
+                                    st.session_state.errors.append(error_msg)
+                                    failed_files.append((uploaded_file.name, "Failed to save results"))
                             else:
-                                st.error(f"Failed to process {uploaded_file.name}")
+                                error_msg = f"Failed to process {uploaded_file.name}"
+                                st.error(error_msg)
+                                st.session_state.errors.append(error_msg)
+                                failed_files.append((uploaded_file.name, "Processing failed"))
                         else:
-                            st.error(f"Failed to extract text from {uploaded_file.name}")
+                            error_msg = f"Failed to extract text from {uploaded_file.name}"
+                            st.error(error_msg)
+                            st.session_state.errors.append(error_msg)
+                            failed_files.append((uploaded_file.name, "Text extraction failed"))
+                    except Exception as e:
+                        error_msg = f"Error processing {uploaded_file.name}: {str(e)}"
+                        st.error(error_msg)
+                        st.session_state.errors.append(error_msg)
+                        failed_files.append((uploaded_file.name, str(e)))
                     finally:
                         # Clean up temporary file
                         os.unlink(temp_path)
@@ -535,6 +716,58 @@ def main():
                 # Complete progress
                 progress_bar.progress(1.0)
                 status_text.text("Processing complete!")
+                
+                # Show summary of processing results
+                st.markdown("### Processing Summary")
+                st.markdown(f"""
+                - ✅ Successfully processed: {len(processed_files)} files
+                - ❌ Failed: {len(failed_files)} files
+                - ⏱️ Total processing time: {format_time(batch_timer.get_total_time())}
+                """)
+                
+                # Show detailed timing statistics
+                if processed_files:
+                    with st.expander("📊 Processing Time Details"):
+                        st.markdown("#### Processing Times per File")
+                        
+                        # Calculate phase statistics
+                        all_phases = set()
+                        phase_totals = {}
+                        for file_data in st.session_state.processing_times.values():
+                            for phase, time in file_data['phases'].items():
+                                all_phases.add(phase)
+                                phase_totals[phase] = phase_totals.get(phase, 0) + time
+                        
+                        # Display overall phase statistics
+                        st.markdown("##### Overall Phase Statistics")
+                        total_time = sum(data['total_time'] for data in st.session_state.processing_times.values())
+                        for phase in sorted(all_phases):
+                            phase_time = phase_totals[phase]
+                            percentage = (phase_time / total_time) * 100
+                            st.markdown(f"- **{phase.replace('_', ' ').title()}**:")
+                            st.markdown(f"  - Total: {format_time(phase_time)}")
+                            st.markdown(f"  - Average: {format_time(phase_time / len(processed_files))}")
+                            st.markdown(f"  - Percentage: {percentage:.1f}%")
+                        
+                        # Display per-file statistics
+                        st.markdown("##### Per-File Statistics")
+                        for file_path in processed_files:
+                            file_name = file_path.name
+                            if file_name in st.session_state.processing_times:
+                                file_data = st.session_state.processing_times[file_name]
+                                st.markdown(f"\n**{file_name}**")
+                                st.markdown(f"- Total: {format_time(file_data['total_time'])}")
+                                for phase, phase_time in file_data['phases'].items():
+                                    st.markdown(f"- {phase.replace('_', ' ').title()}: {format_time(phase_time)}")
+                        
+                        if len(processed_files) > 1:
+                            avg_time = sum(data['total_time'] for data in st.session_state.processing_times.values()) / len(processed_files)
+                            st.markdown(f"\n**Average processing time per file**: {format_time(avg_time)}")
+                
+                if failed_files:
+                    with st.expander("Show Failed Files"):
+                        for file_name, reason in failed_files:
+                            st.markdown(f"- **{file_name}**: {reason}")
                 
                 if processed_files:
                     st.markdown("### Results")
@@ -565,7 +798,9 @@ def main():
                         )
             
             except Exception as e:
-                st.error(f"Error initializing provider: {str(e)}")
+                error_msg = f"Error initializing provider: {str(e)}"
+                st.error(error_msg)
+                st.session_state.errors.append(error_msg)
     
     # Add documentation
     with st.expander("📖 Documentation"):

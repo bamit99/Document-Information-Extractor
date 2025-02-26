@@ -1,6 +1,6 @@
-# Document Information Extractor
+# AutomatedQuestionnaire
 
-A powerful document analysis tool that extracts information from various document types using Large Language Models (LLMs). This application supports multiple LLM providers and can process various document formats to generate structured information.
+A sophisticated Python-based application that leverages Large Language Models (LLMs) to automatically generate and process questionnaires from various document formats. This tool is designed to extract meaningful information and create structured Q&A pairs from documents.
 
 ## Features
 
@@ -10,30 +10,38 @@ A powerful document analysis tool that extracts information from various documen
   - Word documents (*.docx)
   - Text files (*.txt, *.csv, *.json, *.xml, *.md)
 
-- **LLM Provider Support**:
+- **LLM Provider Integration**:
   - OpenAI (GPT-3.5, GPT-4)
-  - Azure OpenAI
-  - OpenRouter
-  - Mistral AI
-  - Together AI
-  - Anyscale
   - Ollama (local models)
   - Deepseek
-  - Any OpenAI API-compatible provider
+  - Support for OpenAI API-compatible services
+    - Azure OpenAI
+    - Mistral AI
+    - Together AI
+    - Anyscale
+    - OpenRouter
 
-- **Features**:
-  - Dynamic model listing for each provider
-  - Customizable system and user prompts
-  - Batch processing support
-  - Markdown output format
-  - Beautiful Streamlit web interface
+- **Key Features**:
+  - Smart text extraction from multiple file formats
+  - Customizable prompts for different question types
+  - Batch processing capabilities
+  - Robust error handling with retries
+  - Web-based interface using Streamlit
+  - Markdown output formatting
+
+## System Requirements
+
+- Python 3.8 or higher
+- Windows/Linux/MacOS
+- Internet connection for cloud-based LLM providers
+- Sufficient disk space for document processing
 
 ## Installation
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/Document-Information-Extractor.git
-   cd Document-Information-Extractor
+   git clone <repository-url>
+   cd Question-Answer
    ```
 
 2. Create a virtual environment:
@@ -49,46 +57,22 @@ A powerful document analysis tool that extracts information from various documen
 
 ## Configuration
 
-1. Copy the example environment file:
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Configure your providers in the `.env` file:
+1. Create a `.env` file in the project root and configure your LLM providers:
 
    ```bash
    # OpenAI Configuration
-   OPENAI_API_KEY=your_openai_api_key_here
+   OPENAI_API_KEY=your_api_key_here
 
-   # Azure OpenAI Configuration
-   PROVIDER_AZURE_NAME=Azure OpenAI
-   PROVIDER_AZURE_API_KEY=your_azure_api_key_here
-   PROVIDER_AZURE_BASE_URL=https://your-resource.openai.azure.com
-   PROVIDER_AZURE_MODEL=gpt-35-turbo
-   PROVIDER_AZURE_API_VERSION=2024-02-15-preview
-
-   # Add more providers as needed
+   # For other providers, use the format:
+   PROVIDER_<NAME>_API_KEY=your_api_key_here
+   PROVIDER_<NAME>_BASE_URL=provider_api_url
+   PROVIDER_<NAME>_MODEL=model_name
    ```
 
-### Adding a New Provider
-
-To add a new OpenAI-compatible provider, add the following to your `.env` file:
-
-```bash
-PROVIDER_<NAME>_NAME=Display Name
-PROVIDER_<NAME>_API_KEY=your_api_key_here
-PROVIDER_<NAME>_BASE_URL=https://api.provider.com/v1
-PROVIDER_<NAME>_MODEL=default-model-name
-PROVIDER_<NAME>_API_VERSION=api-version  # Optional
-```
-
-Example for Mistral AI:
-```bash
-PROVIDER_MISTRAL_NAME=Mistral AI
-PROVIDER_MISTRAL_API_KEY=your_mistral_api_key_here
-PROVIDER_MISTRAL_BASE_URL=https://api.mistral.ai/v1
-PROVIDER_MISTRAL_MODEL=mistral-medium
-```
+2. Customize prompts in the `Prompts` directory:
+   - Each prompt template has its own directory
+   - `system.md`: Contains system instructions
+   - `user.md`: Contains the user prompt template
 
 ## Usage
 
@@ -97,48 +81,56 @@ PROVIDER_MISTRAL_MODEL=mistral-medium
    streamlit run app.py
    ```
 
-2. Open your web browser and navigate to `http://localhost:8501`
+2. Through the web interface:
+   - Select your preferred LLM provider
+   - Configure provider settings
+   - Upload documents for processing
+   - Choose prompt templates
+   - Process files and view results
 
-3. In the sidebar:
-   - Select your LLM provider
-   - Configure the provider settings
-   - Choose a model from the available options
+3. Using the Python API:
+   ```python
+   from python import DocumentProcessor, OpenAIProvider
 
-4. Upload one or more supported documents
+   # Initialize provider
+   provider = OpenAIProvider(api_key="your_api_key")
+   
+   # Create processor
+   processor = DocumentProcessor(provider)
+   
+   # Process files
+   processor.process_files("input_path", "output_folder")
+   ```
 
-5. Click 'Process Files' to start the extraction
+## Project Structure
 
-The application will process each file and generate structured information in Markdown format.
-
-## Customizing Prompts
-
-You can customize the system and user prompts for each provider in the Prompts directory:
-
-- `Prompts/<template_name>/system.md`: Contains the system instructions
-- `Prompts/<template_name>/user.md`: Contains the user prompt template
+- `app.py`: Streamlit web application
+- `python.py`: Core processing logic and provider implementations
+- `Prompts/`: Directory containing prompt templates
+- `requirements.txt`: Python dependencies
 
 ## Error Handling
 
-The application includes robust error handling:
-- Retries for API calls with exponential backoff
-- Fallback mechanisms for model listing
-- Informative error messages in the UI
+The application implements robust error handling:
+- Automatic retries for API calls with exponential backoff
 - Comprehensive logging
+- User-friendly error messages
+- Fallback mechanisms for provider connections
 
 ## Contributing
 
+Contributions are welcome! Please:
 1. Fork the repository
 2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+3. Make your changes
+4. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.
 
 ## Acknowledgments
 
-- OpenAI for the ChatGPT API
-- Streamlit for the web interface
-- All supported LLM providers for their APIs
+- OpenAI and other LLM providers for their APIs
+- Streamlit for the web interface framework
+- PyMuPDF, python-docx, and other document processing libraries

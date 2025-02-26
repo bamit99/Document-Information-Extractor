@@ -257,25 +257,78 @@ class DeepseekProvider(LLMProvider):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
+        
+    def _validate_request_data(self, text: str) -> bool:
+        """Validate request data before sending to API"""
+        if not text or not isinstance(text, str):
+            logger.error("Invalid text input: text must be a non-empty string")
+            return False
+        if not self.system_prompt or not self.user_prompt_template:
+            logger.error("Prompts not configured: both system_prompt and user_prompt_template must be set")
+            return False
+        return True
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def generate_qa(self, text: str) -> Optional[str]:
+        if not self._validate_request_data(text):
+            return None
+            
         try:
+            # Format the request payload according to Deepseek's API requirements
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": self.user_prompt_template.format(text=text)}
+                ],
+                "temperature": 0.7,  # Add temperature parameter
+                "max_tokens": 2000   # Add max_tokens parameter
+            }
+            
+            # Make the API request
             response = requests.post(
                 f"{self.base_url}/v1/chat/completions",
                 headers=self.headers,
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": self.user_prompt_template.format(text=text)}
-                    ]
-                }
+                json=payload,
+                timeout=60  # Add timeout
             )
+            
+            # Handle different response status codes
+            if response.status_code == 400:
+                error_detail = response.json().get('error', {}).get('message', 'No error details provided')
+                logger.error(f"Bad request to Deepseek API: {error_detail}")
+                return None
+            elif response.status_code == 401:
+                logger.error("Authentication failed: Please check your API key")
+                return None
+            elif response.status_code == 429:
+                logger.error("Rate limit exceeded: Please try again later")
+                return None
+            
             response.raise_for_status()
-            return response.json()['choices'][0]['message']['content'].strip()
-        except Exception as e:
+            
+            # Parse and validate response
+            response_data = response.json()
+            if not response_data.get('choices'):
+                logger.error("Invalid response format from Deepseek API")
+                return None
+                
+            return response_data['choices'][0]['message']['content'].strip()
+            
+        except requests.exceptions.Timeout:
+            logger.error("Timeout while calling Deepseek API")
+            return None
+        except requests.exceptions.ConnectionError:
+            logger.error("Connection error while calling Deepseek API. Please check your internet connection")
+            return None
+        except requests.exceptions.RequestException as e:
             logger.error(f"Error in Deepseek API call: {str(e)}")
+            return None
+        except KeyError as e:
+            logger.error(f"Unexpected response format from Deepseek API: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error in Deepseek API call: {str(e)}")
             return None
     
     def list_models(self) -> List[str]:
@@ -283,17 +336,34 @@ class DeepseekProvider(LLMProvider):
         try:
             response = requests.get(
                 f"{self.base_url}/v1/models",
-                headers=self.headers
+                headers=self.headers,
+                timeout=30
             )
+            
+            if response.status_code == 401:
+                logger.error("Authentication failed: Please check your API key")
+                return []
+                
             response.raise_for_status()
             data = response.json()
-            if 'data' in data:
-                return sorted([model['id'] for model in data['data']])
+            
+            if 'data' in data and isinstance(data['data'], list):
+                return sorted([model['id'] for model in data['data'] if isinstance(model, dict) and 'id' in model])
             else:
-                logger.warning("No models found in Deepseek response")
+                logger.warning("Unexpected response format from Deepseek API")
                 return []
+                
+        except requests.exceptions.Timeout:
+            logger.error("Timeout while fetching Deepseek models")
+            return []
+        except requests.exceptions.ConnectionError:
+            logger.error("Connection error while fetching Deepseek models. Please check your internet connection")
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching Deepseek models: {str(e)}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error while fetching Deepseek models: {str(e)}")
             return []
 
 class FileProcessor:
