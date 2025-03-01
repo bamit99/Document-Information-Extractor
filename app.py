@@ -269,257 +269,109 @@ if st.session_state.errors:
 with st.sidebar:
     st.header("Configuration")
     
-    # LLM Provider Selection
-    available_providers = ["OpenAI", "Ollama", "Deepseek"] + \
-        [f"Compatible: {config['name']}" for config in st.session_state.compatible_providers.values()]
-    provider_name = st.selectbox(
-        "Select LLM Provider",
-        available_providers,
-        key="provider_name"
-    )
-    
-    # Provider-specific configuration
-    if provider_name == "OpenAI":
-        api_key = st.text_input(
-            "OpenAI API Key",
-            type="password",
-            value=os.getenv("OPENAI_API_KEY", ""),
-            help="Your OpenAI API key"
-        )
-        llm_config = {"api_key": api_key}
-        
-        # Fetch and display available models
-        models = get_provider_models(provider_name, llm_config)
-        selected_model = st.selectbox(
-            "Select Model",
-            models,
-            index=0 if models else -1,
-            help="Choose the OpenAI model to use"
-        )
-        llm_config["model"] = selected_model
-        
-    elif provider_name == "OpenAI Compatible":
-        with st.expander("Provider Configuration", expanded=True):
-            provider_name_input = st.text_input(
-                "Provider Name",
-                value="",
-                help="Enter a name for this provider (e.g., OpenRouter, Mistral)"
-            )
-            base_url = st.text_input(
-                "Base URL",
-                value="",
-                help="API base URL (e.g., https://api.openrouter.ai/api)"
-            )
-            api_key = st.text_input(
-                "API Key",
-                type="password",
-                value="",
-                help="Your API key for the provider"
-            )
-            default_model = st.text_input(
-                "Default Model",
-                value="",
-                help="Default model ID for this provider (optional)"
-            )
-            
-        llm_config = {
-            "api_key": api_key,
-            "base_url": base_url,
-            "model": default_model,
-            "provider_name": provider_name_input
-        }
-        
-        # Attempt to fetch models if configuration is complete
-        if api_key and base_url:
-            models = get_provider_models("OpenAI Compatible", llm_config)
-            if models:
-                selected_model = st.selectbox(
-                    "Select Model",
-                    models,
-                    index=0 if models else -1,
-                    help=f"Choose the {provider_name_input} model to use"
-                )
-                llm_config["model"] = selected_model
-            else:
-                st.warning("Could not fetch models. Using default model if specified.")
-                
-    elif provider_name == "Ollama":
-        base_url = st.text_input(
-            "Ollama Base URL",
-            value="http://localhost:11434",
-            help="Base URL for Ollama API"
-        )
-        llm_config = {"base_url": base_url}
-        
-        # Fetch and display available models
-        if base_url:
-            models = get_provider_models(provider_name, llm_config)
-            selected_model = st.selectbox(
-                "Select Model",
-                models,
-                index=0 if models else -1,
-                help="Choose the Ollama model to use"
-            )
-            llm_config["model"] = selected_model
-            
-            st.info("Make sure Ollama is running and the selected model is pulled.")
-        
-    elif provider_name == "Deepseek":
-        api_key = st.text_input(
-            "Deepseek API Key",
-            type="password",
-            value=os.getenv("DEEPSEEK_API_KEY", ""),
-            help="Your Deepseek API key"
-        )
-        base_url = st.text_input(
-            "Deepseek Base URL",
-            value="https://api.deepseek.com",
-            help="Base URL for Deepseek API"
-        )
-        llm_config = {"api_key": api_key, "base_url": base_url}
-        
-        # Display available models
-        models = get_provider_models(provider_name, llm_config)
-        selected_model = st.selectbox(
-            "Select Model",
-            models,
-            index=0 if models else -1,
-            help="Choose the Deepseek model to use"
-        )
-        llm_config["model"] = selected_model
-        
-    elif provider_name.startswith("Compatible: "):
-        # Get provider configuration
-        provider_display_name = provider_name.replace("Compatible: ", "")
-        provider_config = next(
-            (config for config in st.session_state.compatible_providers.values() 
-             if config["name"] == provider_display_name),
-            None
-        )
-        
-        if provider_config:
-            with st.expander(f"{provider_display_name} Configuration", expanded=True):
-                st.text_input("Base URL", value=provider_config["base_url"], disabled=True)
-                if provider_config.get("api_version"):
-                    st.text_input("API Version", value=provider_config["api_version"], disabled=True)
-                
-                # Show default model if configured
-                if provider_config.get("model"):
-                    st.text_input("Default Model", value=provider_config["model"], disabled=True)
-            
+    # LLM Provider Configuration in a collapsible section
+    with st.expander("LLM Provider Settings", expanded=True):
+        # LLM Provider Selection
+        available_providers = ["OpenAI", "Ollama", "Deepseek", "OpenAI Compatible"]
+        provider_name = st.selectbox("Select LLM Provider", available_providers)
+
+        # Provider-specific configuration
+        if provider_name == "OpenAI":
+            api_key = st.text_input("OpenAI API Key", type="password", value=os.getenv("OPENAI_API_KEY", ""))
+            llm_config = {"api_key": api_key}
+        elif provider_name == "Ollama":
+            base_url = st.text_input("Ollama Base URL", value=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
+            llm_config = {"base_url": base_url}
+        elif provider_name == "Deepseek":
+            api_key = st.text_input("Deepseek API Key", type="password", value=os.getenv("DEEPSEEK_API_KEY", ""))
+            base_url = st.text_input("Deepseek Base URL", value=os.getenv("DEEPSEEK_BASE_URL", ""))
+            llm_config = {"api_key": api_key, "base_url": base_url}
+        elif provider_name == "OpenAI Compatible":
+            api_key = st.text_input("API Key", type="password", value=os.getenv("OPENAI_COMPATIBLE_API_KEY", ""))
+            base_url = st.text_input("Base URL", value=os.getenv("OPENAI_COMPATIBLE_BASE_URL", ""))
+            api_version = st.text_input("API Version (optional)", value=os.getenv("OPENAI_COMPATIBLE_API_VERSION", ""))
             llm_config = {
-                "api_key": provider_config["api_key"],
-                "base_url": provider_config["base_url"],
-                "model": provider_config["model"],
-                "api_version": provider_config.get("api_version"),
-                "provider_name": provider_config["provider_id"]
+                "api_key": api_key,
+                "base_url": base_url,
+                "api_version": api_version,
+                "provider_name": provider_name,
+                "model": ""  # Will be set after model selection
             }
-            
-            # Attempt to fetch models
-            try:
-                provider = OpenAICompatibleProvider(
-                    llm_config["api_key"],
-                    llm_config["base_url"],
-                    llm_config["model"],
-                    llm_config.get("api_version"),
-                    llm_config["provider_name"]
-                )
-                models = provider.list_models()
-                if models:
-                    selected_model = st.selectbox(
-                        "Select Model",
-                        models,
-                        index=models.index(llm_config["model"]) if llm_config["model"] in models else 0,
-                        help=f"Choose the {provider_display_name} model to use"
-                    )
-                    llm_config["model"] = selected_model
-                else:
-                    st.info(f"Using default model: {llm_config['model']}")
-            except Exception as e:
-                st.warning(f"Could not fetch models. Using default model: {llm_config['model']}")
+        
+        # Fetch and display available models
+        models = get_provider_models(provider_name, llm_config)
+        
+        # Add search box for models
+        model_search = st.text_input("Search Models", key="model_search", placeholder="Type to filter models...")
+        
+        # Filter models based on search
+        if model_search and models:
+            filtered_models = [model for model in models if model_search.lower() in model.lower()]
+        else:
+            filtered_models = models
+
+        selected_model = st.selectbox(
+            "Select Model",
+            filtered_models,
+            index=0 if filtered_models else -1,
+            help="Choose the model to use"
+        )
+        llm_config["model"] = selected_model
+
+    st.divider()
     
+    # Prompt Settings in a collapsible section
+    with st.expander("Prompt Settings", expanded=True):
+        # Add search box for prompts
+        prompt_search = st.text_input("Search Prompts", key="prompt_search", placeholder="Search prompt templates...")
+        
+        # Get and filter prompt templates
+        templates = get_prompt_templates()
+        if prompt_search and templates:
+            filtered_templates = [t for t in templates if prompt_search.lower() in t.lower()]
+        else:
+            filtered_templates = templates
+
+        if filtered_templates:
+            selected_template = st.selectbox(
+                "Select Prompt Template",
+                filtered_templates,
+                key="prompt_template"
+            )
+            
+            if selected_template:
+                template_content = load_prompt_template(selected_template)
+                if template_content:
+                    system_prompt, user_prompt = template_content
+                    st.session_state.system_prompt = system_prompt
+                    st.session_state.user_prompt = user_prompt
+                    st.success(f"Loaded template: {selected_template}")
+        else:
+            st.warning("No prompt templates found in the Prompts directory")
+            # Fallback to custom prompts
+            system_prompt = st.text_area(
+                "System Prompt",
+                value=st.session_state.system_prompt,
+                height=100
+            )
+            user_prompt = st.text_area(
+                "User Prompt",
+                value=st.session_state.user_prompt,
+                height=100
+            )
+            st.session_state.system_prompt = system_prompt
+            st.session_state.user_prompt = user_prompt
+
     st.info("Your configuration is securely stored for this session only.")
     
-    # Prompt customization
-    st.header("Prompt Settings")
-    
-    # Add template selection
-    templates = get_prompt_templates()
-    if templates:
-        # Initialize selected_prompt_template if not in session state
-        if 'selected_prompt_template' not in st.session_state:
-            st.session_state.selected_prompt_template = "Custom"
-            
-        selected_template = st.selectbox(
-            "Select Prompt Template",
-            ["Custom"] + templates,
-            key="selected_prompt_template",
-            help="Choose a predefined prompt template or use custom prompts"
-        )
-        
-        if selected_template != "Custom":
-            system_prompt_template, user_prompt_template = load_prompt_template(selected_template)
-            st.session_state.system_prompt = system_prompt_template
-            st.session_state.user_prompt = user_prompt_template
-            st.session_state.last_template = selected_template  # Store last used template
-            st.info(f"Loaded template: {selected_template}")
-            
-            # Display loaded prompts in text areas, allowing for editing
-            system_prompt = st.text_area(
-                "System Prompt",
-                value=st.session_state.system_prompt,
-                key="system_prompt",
-                help="The instruction given to the AI about its task"
-            )
-            
-            user_prompt = st.text_area(
-                "User Prompt Template",
-                value=st.session_state.user_prompt,
-                key="user_prompt",
-                help="The template for processing text. Use {text} as placeholder for the document content"
-            )
-        else:
-            # Custom prompt inputs
-            system_prompt = st.text_area(
-                "System Prompt",
-                value=st.session_state.system_prompt,
-                key="system_prompt",
-                help="The instruction given to the AI about its task"
-            )
-            
-            user_prompt = st.text_area(
-                "User Prompt Template",
-                value=st.session_state.user_prompt,
-                key="user_prompt",
-                help="The template for processing text. Use {text} as placeholder for the document content"
-            )
-    else:
-        st.warning("No prompt templates found in the Prompts directory")
-        # Fallback to custom prompts
-        system_prompt = st.text_area(
-            "System Prompt",
-            value=st.session_state.system_prompt,
-            key="system_prompt",
-            help="The instruction given to the AI about its task"
-        )
-        
-        user_prompt = st.text_area(
-            "User Prompt Template",
-            value=st.session_state.user_prompt,
-            key="user_prompt",
-            help="The template for processing text. Use {text} as placeholder for the document content"
-        )
-    
-    # Add usage instructions
-    st.markdown("### How to use")
-    st.markdown("""
-    1. Select your LLM provider in the sidebar
-    2. Configure the provider settings
-    3. Choose a model from the available options
-    4. Upload one or more files
-    5. Click 'Process Files'
-    6. Download the generated information
-    """)
+    # Add usage instructions at the bottom
+    with st.expander("How to Use", expanded=False):
+        st.markdown("""
+        1. Select an LLM provider and configure its settings
+        2. Choose or search for a model
+        3. Select a prompt template or create custom prompts
+        4. Upload your documents for processing
+        """)
 
 # Main content area
 def main():
@@ -581,13 +433,13 @@ def main():
                     llm_provider = OllamaProvider(llm_config["base_url"], llm_config["model"])
                 elif provider_name == "Deepseek":
                     llm_provider = DeepseekProvider(llm_config["api_key"], llm_config["base_url"], llm_config["model"])
-                elif provider_name.startswith("Compatible: "):
+                elif provider_name == "OpenAI Compatible":
                     llm_provider = OpenAICompatibleProvider(
                         llm_config["api_key"],
                         llm_config["base_url"],
                         llm_config["model"],
                         llm_config.get("api_version"),
-                        llm_config["provider_name"]
+                        "openai_compatible"
                     )
                 
                 # Set custom prompts immediately after initialization
@@ -602,16 +454,22 @@ def main():
                 # Initialize progress and timing metrics
                 progress_bar = st.progress(0)
                 status_text = st.empty()
-                metrics_container = st.container()
                 
-                # Create columns for metrics
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    current_file_time = st.empty()
-                with col2:
-                    total_time = st.empty()
-                with col3:
-                    remaining_time = st.empty()
+                # Create a container for all processing details
+                processing_details = st.container()
+                
+                # Create columns for metrics in the processing details
+                with processing_details:
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        current_file_time = st.empty()
+                    with col2:
+                        total_time = st.empty()
+                    with col3:
+                        remaining_time = st.empty()
+                
+                # Results container will be shown at the top
+                results_container = st.container()
                 
                 # Process each file
                 batch_timer = ProcessingTimer()
@@ -620,14 +478,8 @@ def main():
                     progress = (i) / len(uploaded_files)
                     progress_bar.progress(progress)
                     
-                    # Update status and timing information
+                    # Update status
                     status_text.text(f"Processing {uploaded_file.name}...")
-                    if i > 0:
-                        est_remaining = estimate_remaining_time(i, len(uploaded_files), batch_timer.get_total_time())
-                        remaining_time.metric(
-                            "Estimated Time Remaining",
-                            format_time(est_remaining)
-                        )
                     
                     # Create a temporary file for the uploaded content
                     with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as temp_file:
@@ -672,23 +524,24 @@ def main():
                                         'phases': file_timer.get_phase_times()
                                     }
                                     
-                                    # Update timing displays
-                                    with metrics_container:
-                                        phase_times = file_timer.get_phase_times()
-                                        st.markdown("#### Current File Processing Phases")
-                                        for phase, duration in phase_times.items():
-                                            st.text(f"{phase.replace('_', ' ').title()}: {format_time(duration)}")
-                                    
-                                    current_file_time.metric(
-                                        "Current File Total Time",
-                                        format_time(file_timer.get_total_time())
-                                    )
-                                    total_time.metric(
-                                        "Total Processing Time",
-                                        format_time(batch_timer.get_total_time())
-                                    )
-                                    
-                                    st.success(f"✅ Successfully processed {uploaded_file.name}")
+                                    # Show results first (in the results container)
+                                    with results_container:
+                                        st.success(f"✅ Successfully processed {uploaded_file.name}")
+                                        st.markdown(f"Output saved to: `{output_filename}`")
+                                        
+                                        # All processing information in one expander
+                                        with st.expander("View Processing Information", expanded=False):
+                                            st.markdown("#### Current File Processing Phases")
+                                            phase_times = file_timer.get_phase_times()
+                                            for phase, duration in phase_times.items():
+                                                st.text(f"{phase.replace('_', ' ').title()}: {format_time(duration)}")
+                                            
+                                            st.markdown("#### Processing Times")
+                                            st.metric("Current File Total Time", format_time(file_timer.get_total_time()))
+                                            st.metric("Total Processing Time", format_time(batch_timer.get_total_time()))
+                                            if i > 0:
+                                                est_remaining = estimate_remaining_time(i, len(uploaded_files), batch_timer.get_total_time())
+                                                st.metric("Estimated Time Remaining", format_time(est_remaining))
                                 else:
                                     error_msg = f"Failed to save results for {uploaded_file.name}"
                                     st.error(error_msg)
@@ -717,48 +570,37 @@ def main():
                 progress_bar.progress(1.0)
                 status_text.text("Processing complete!")
                 
-                # Show summary of processing results
-                st.markdown("### Processing Summary")
-                st.markdown(f"""
-                - ✅ Successfully processed: {len(processed_files)} files
-                - ❌ Failed: {len(failed_files)} files
-                - ⏱️ Total processing time: {format_time(batch_timer.get_total_time())}
-                """)
-                
-                # Show detailed timing statistics
-                if processed_files:
-                    with st.expander("📊 Processing Time Details"):
-                        st.markdown("#### Processing Times per File")
+                # Show final results and summary
+                with results_container:
+                    st.markdown("### Results")
+                    if processed_files:
+                        st.markdown(f"Files have been saved to: `{batch_dir}`")
                         
-                        # Calculate phase statistics
-                        all_phases = set()
-                        phase_totals = {}
-                        for file_data in st.session_state.processing_times.values():
-                            for phase, time in file_data['phases'].items():
-                                all_phases.add(phase)
-                                phase_totals[phase] = phase_totals.get(phase, 0) + time
-                        
-                        # Display overall phase statistics
-                        st.markdown("##### Overall Phase Statistics")
-                        total_time = sum(data['total_time'] for data in st.session_state.processing_times.values())
-                        for phase in sorted(all_phases):
-                            phase_time = phase_totals[phase]
-                            percentage = (phase_time / total_time) * 100
-                            st.markdown(f"- **{phase.replace('_', ' ').title()}**:")
-                            st.markdown(f"  - Total: {format_time(phase_time)}")
-                            st.markdown(f"  - Average: {format_time(phase_time / len(processed_files))}")
-                            st.markdown(f"  - Percentage: {percentage:.1f}%")
-                        
-                        # Display per-file statistics
-                        st.markdown("##### Per-File Statistics")
-                        for file_path in processed_files:
-                            file_name = file_path.name
-                            if file_name in st.session_state.processing_times:
-                                file_data = st.session_state.processing_times[file_name]
-                                st.markdown(f"\n**{file_name}**")
-                                st.markdown(f"- Total: {format_time(file_data['total_time'])}")
-                                for phase, phase_time in file_data['phases'].items():
-                                    st.markdown(f"- {phase.replace('_', ' ').title()}: {format_time(phase_time)}")
+                        with st.expander("View Processing Summary", expanded=False):
+                            st.markdown(f"""
+                            - ✅ Successfully processed: {len(processed_files)} files
+                            - ❌ Failed: {len(failed_files)} files
+                            - ⏱️ Total processing time: {format_time(batch_timer.get_total_time())}
+                            """)
+                            
+                            # Show detailed timing statistics
+                            st.markdown("#### Processing Times per File")
+                            # Calculate and display phase statistics
+                            all_phases = set()
+                            phase_totals = {}
+                            for file_data in st.session_state.processing_times.values():
+                                for phase, time in file_data['phases'].items():
+                                    all_phases.add(phase)
+                                    phase_totals[phase] = phase_totals.get(phase, 0) + time
+                            
+                            total_time = sum(data['total_time'] for data in st.session_state.processing_times.values())
+                            for phase in sorted(all_phases):
+                                phase_time = phase_totals[phase]
+                                percentage = (phase_time / total_time) * 100
+                                st.markdown(f"- **{phase.replace('_', ' ').title()}**:")
+                                st.markdown(f"  - Total: {format_time(phase_time)}")
+                                st.markdown(f"  - Average: {format_time(phase_time / len(processed_files))}")
+                                st.markdown(f"  - Percentage: {percentage:.1f}%")
                         
                         if len(processed_files) > 1:
                             avg_time = sum(data['total_time'] for data in st.session_state.processing_times.values()) / len(processed_files)
