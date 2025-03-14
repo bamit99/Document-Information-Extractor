@@ -369,20 +369,22 @@ class DeepseekProvider(LLMProvider):
 class FileProcessor:
     """Base class for processing different file types"""
     
+    def __init__(self):
+        """Initialize the processor"""
+        pass
+    
     @staticmethod
     def get_processor(file_path: str) -> 'FileProcessor':
         """Factory method to get appropriate processor based on file extension"""
-        ext = file_path.lower().split('.')[-1]
-        if ext == 'pdf':
+        extension = Path(file_path).suffix.lower()
+        if extension == '.pdf':
             return PDFProcessor()
-        elif ext in ['xlsx', 'xls']:
+        elif extension in ['.xlsx', '.xls']:
             return ExcelProcessor()
-        elif ext == 'docx':
+        elif extension == '.docx':
             return WordProcessor()
-        elif ext in ['txt', 'csv', 'json', 'xml', 'md']:
-            return TextProcessor()
         else:
-            raise ValueError(f"Unsupported file type: {ext}")
+            return TextProcessor()
     
     @abstractmethod
     def extract_text(self, file_path: str) -> Optional[str]:
@@ -390,6 +392,10 @@ class FileProcessor:
         pass
 
 class PDFProcessor(FileProcessor):
+    def __init__(self):
+        """Initialize the PDF processor"""
+        super().__init__()
+    
     def extract_text(self, file_path: str) -> Optional[str]:
         try:
             text = ""

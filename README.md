@@ -1,6 +1,7 @@
 # AutomatedQuestionnaire
 
-A sophisticated Python-based application that leverages Large Language Models (LLMs) to automatically generate and process questionnaires from various document formats. This tool is designed to extract meaningful information and create structured Q&A pairs from documents.
+A sophisticated Python-based application that leverages Large Language Models (LLMs) to automatically process large documents based on various system prompts included in the program. This tool is designed to extract meaningful information and create structured data based on the system promppt selected. The solution is simple. Configure your LLM provider, upload your documents, and select the prompt you need. The application will process the documents and provide you with the results based on the selected System Prompt.
+
 
 ## Features
 
