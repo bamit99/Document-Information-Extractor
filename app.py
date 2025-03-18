@@ -9,6 +9,19 @@ from datetime import datetime, timedelta
 import io
 import tiktoken  # Add tiktoken for token counting
 import time
+import logging
+import base64
+
+# Configure logging to show in Streamlit
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log')
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -23,8 +36,8 @@ st.set_page_config(
 # Initialize session state for errors
 if 'errors' not in st.session_state:
     st.session_state.errors = []
-if 'processed_files' not in st.session_state:
-    st.session_state.processed_files = []
+if 'processing_times' not in st.session_state:
+    st.session_state.processing_times = []
 
 def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
     """Count the number of tokens in a text string"""
@@ -123,16 +136,65 @@ class ProcessingTimer:
         """Get times for all phases"""
         return {phase: duration for phase, duration in self.phases.items()}
 
-# Title and description
-st.title("📚 Document Information Extractor")
-st.markdown("""
-This app extracts information from various document types using LLM providers.
-Supported formats:
-- PDF documents
-- Excel files (XLSX, XLS)
-- Word documents (DOCX)
-- Text files (TXT, CSV, JSON, XML, MD)
-""")
+def save_processed_file(content, original_name, template_name):
+    """Save processed content to a file and return the file path"""
+    # Create a unique filename using timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = Path(original_name).stem.replace(" ", "_")
+    filename = f"{safe_name}_{timestamp}.md"
+    
+    # Save to the output directory
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+    file_path = output_dir / filename
+    
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    
+    return {
+        "path": str(file_path),
+        "name": filename,
+        "original_name": original_name,
+        "content": content,
+        "processed_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "prompt_template": template_name
+    }
+
+def process_and_download(file, llm_provider, output_dir):
+    """Process a single file and return its download button"""
+    try:
+        # Extract text from file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.name).suffix) as tmp:
+            tmp.write(file.getvalue())
+            tmp_path = tmp.name
+        
+        processor = FileProcessor.get_processor(tmp_path)
+        text = processor.extract_text(tmp_path)
+        os.unlink(tmp_path)
+        
+        if not text:
+            return None, f"Failed to extract text from {file.name}"
+            
+        # Process with LLM
+        system_prompt = st.session_state.system_prompt
+        user_prompt = st.session_state.user_prompt.format(text=text)
+        llm_provider.set_prompts(system_prompt, user_prompt)
+        result = llm_provider.generate_qa(text)
+        
+        if not result:
+            return None, f"Failed to process {file.name}"
+        
+        # Save result and create download
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"{Path(file.name).stem}_{timestamp}.md"
+        output_path = output_dir / output_filename
+        
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(result)
+            
+        return output_path, None
+    except Exception as e:
+        return None, str(e)
 
 def get_provider_models(provider_name: str, config: dict) -> list:
     """Get available models for the selected provider by querying their APIs"""
@@ -384,202 +446,86 @@ with st.sidebar:
         4. Upload your documents for processing
         """)
 
-# Main content area
 def main():
-    # Create output directory if it doesn't exist
-    output_base_dir = Path("output")
-    output_base_dir.mkdir(exist_ok=True)
+    # Create output directory
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
     
-    # File uploader
+    # File upload and processing section
     uploaded_files = st.file_uploader(
-        "Upload document files",
+        "Upload Documents",
         type=["pdf", "xlsx", "xls", "docx", "txt", "csv", "json", "xml", "md"],
         accept_multiple_files=True,
         help="Select one or more files to process"
     )
     
     if uploaded_files:
-        # Add process button
-        process_button = st.button("Process Documents", type="primary")
-        
-        if not process_button:
-            st.info("Click 'Process Documents' to start processing.")
-            return
+        if st.button("Process Documents", type="primary", use_container_width=True):
+            # Initialize LLM provider
+            llm_provider = None
+            if provider_name == "OpenAI":
+                llm_provider = OpenAIProvider(llm_config["api_key"])
+            elif provider_name == "Ollama":
+                llm_provider = OllamaProvider(llm_config["base_url"])
+            elif provider_name == "Deepseek":
+                llm_provider = DeepseekProvider(llm_config["api_key"], llm_config["base_url"])
+            elif provider_name == "OpenAI Compatible":
+                llm_provider = OpenAICompatibleProvider(
+                    llm_config["api_key"],
+                    llm_config["base_url"],
+                    llm_config["model"],
+                    llm_config.get("api_version"),
+                    llm_config["provider_name"]
+                )
             
-        # Validate configuration
-        if provider_name == "OpenAI" and not llm_config["api_key"]:
-            st.error("⚠️ Configuration Error: Please enter your OpenAI API key in the sidebar.")
-            return
-        elif provider_name == "Deepseek" and (not llm_config["api_key"] or not llm_config["base_url"]):
-            st.error("⚠️ Configuration Error: Please enter your Deepseek API key and base URL in the sidebar.")
-            return
-        elif provider_name == "Ollama" and not llm_config["base_url"]:
-            st.error("⚠️ Configuration Error: Please enter the Ollama base URL in the sidebar.")
-            return
-        elif provider_name == "OpenAI Compatible" and (not llm_config["api_key"] or not llm_config["base_url"]):
-            st.error("⚠️ Configuration Error: Please enter your OpenAI Compatible API key and base URL in the sidebar.")
-            return
-
-        # Initialize timer
-        timer = ProcessingTimer()
-        timer.start_phase("total")
-
-        # Initialize variables for progress tracking
-        total_files = len(uploaded_files)
-        processed_files_count = 0
-        start_time = time.time()
-
-        if not uploaded_files:
-            st.info("Upload documents to start processing.")
-            return
-
-        # Create tabs for processed documents
-        tabs = st.tabs([f"File {i+1}" for i in range(total_files)])
-        
-        # Store processed files for batch download
-        processed_files_data = []
-
-        for i, uploaded_file in enumerate(uploaded_files):
-            try:
-                timer.start_phase("file")
-
-                # Determine file type and process accordingly
-                file_type = uploaded_file.type
-                file_name = uploaded_file.name
-                file_extension = file_name.split(".")[-1].lower()
-
-                # Initialize LLM provider first
-                if provider_name == "OpenAI":
-                    llm_provider = OpenAIProvider(llm_config["api_key"])
-                elif provider_name == "Ollama":
-                    llm_provider = OllamaProvider(llm_config["base_url"])
-                elif provider_name == "Deepseek":
-                    llm_provider = DeepseekProvider(llm_config["api_key"], llm_config["base_url"])
-                elif provider_name == "OpenAI Compatible":
-                    llm_provider = OpenAICompatibleProvider(
-                        llm_config["api_key"],
-                        llm_config["base_url"],
-                        llm_config["model"],
-                        llm_config.get("api_version"),
-                        llm_config["provider_name"]
-                    )
-
-                timer.start_phase("read")
-                # Save uploaded file to temporary location
-                with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as tmp:
-                    tmp.write(uploaded_file.getvalue())
-                    tmp_path = tmp.name
+            # Process files with progress tracking
+            progress = st.progress(0)
+            status = st.empty()
+            processed_files = []
+            
+            for i, file in enumerate(uploaded_files):
+                status.text(f"Processing {file.name}...")
+                progress.progress((i + 1) / len(uploaded_files))
                 
-                # Get appropriate processor and extract text
-                processor = FileProcessor.get_processor(tmp_path)
-                text = processor.extract_text(tmp_path)
+                output_path, error = process_and_download(file, llm_provider, output_dir)
+                if output_path:
+                    processed_files.append((file.name, output_path))
+                    # Auto-trigger download
+                    with open(output_path, "r", encoding="utf-8") as f:
+                        st.download_button(
+                            f"Download {file.name} Results",
+                            f.read(),
+                            file_name=output_path.name,
+                            mime="text/markdown",
+                            key=f"download_{i}"
+                        )
+                if error:
+                    st.error(f"❌ {error}")
+            
+            # Clear progress indicators
+            progress.empty()
+            status.empty()
+            
+            # Show completion message
+            if processed_files:
+                st.success("🎉 Processing complete! Downloads should start automatically.")
                 
-                # Clean up temporary file
-                try:
-                    os.unlink(tmp_path)
-                except:
-                    pass  # Ignore cleanup errors
+                # Create ZIP for batch download if multiple files
+                if len(processed_files) > 1:
+                    zip_buffer = io.BytesIO()
+                    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                        for _, path in processed_files:
+                            zf.write(path, path.name)
                     
-                if text is None:
-                    st.error(f"Failed to extract text from '{file_name}'. Skipping.")
-                    continue
-                    
-                timer.end_phase()
-
-                # Check token limit
-                timer.start_phase("token_check")
-                is_within_limit, token_count = check_token_limit(text, llm_config["model"], provider_name)
-                timer.end_phase()
-
-                if not is_within_limit:
-                    st.error(f"File '{file_name}' exceeds token limit ({token_count} > {limit}). Skipping.")
-                    continue
-
-                # Prepare prompts
-                timer.start_phase("prompt")
-                system_prompt_final = st.session_state.system_prompt
-                user_prompt_final = st.session_state.user_prompt.format(text=text)
-                timer.end_phase()
-
-                # Process document with LLM
-                timer.start_phase("llm_process")
-                llm_provider.set_prompts(system_prompt_final, user_prompt_final)
-                output = llm_provider.generate_qa(text)
-                timer.end_phase()
-
-                # Save output to file
-                timer.start_phase("save")
-                output_file_name = f"{Path(file_name).stem}_processed.md"
-                output_file_path = output_base_dir / output_file_name
-                with open(output_file_path, "w", encoding="utf-8") as f:
-                    f.write(output)
-                timer.end_phase()
-
-                # Store processed file data for batch download
-                processed_files_data.append({
-                    "name": output_file_name,
-                    "content": output
-                })
-
-                # Display processed document in the tab
-                with tabs[i]:
-                    st.markdown(output)
                     st.download_button(
-                        label=f"Download {output_file_name}",
-                        data=output,
-                        file_name=output_file_name,
-                        mime="text/markdown"
+                        "📦 Download All Results (ZIP)",
+                        zip_buffer.getvalue(),
+                        file_name="processed_documents.zip",
+                        mime="application/zip",
+                        key="download_all"
                     )
-
-                # Update processed files count
-                processed_files_count += 1
-
-            except Exception as e:
-                error_message = f"Error processing file '{file_name}': {str(e)}"
-                st.session_state.errors.append(error_message)
-                st.error(error_message)
-
-            finally:
-                if timer.current_phase:
-                    timer.end_phase()
-
-        timer.end_phase("total")
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        total_processing_time = timer.get_total_time()
-
-        # Display summary
-        st.success(f"✅ Successfully processed {processed_files_count}/{total_files} files")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Total Processing Time", format_time(total_processing_time))
-        with col2:
-            st.metric("Average Time per File", format_time(total_processing_time / processed_files_count) if processed_files_count > 0 else "N/A")
-
-        # Add batch download button if multiple files were processed
-        if len(processed_files_data) > 1:
-            # Create ZIP file in memory
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for file_data in processed_files_data:
-                    zf.writestr(file_data["name"], file_data["content"])
-            
-            # Offer ZIP download
-            st.download_button(
-                label="📦 Download All Files (ZIP)",
-                data=zip_buffer.getvalue(),
-                file_name="processed_documents.zip",
-                mime="application/zip"
-            )
-
-        # Show detailed processing information in an expander
-        with st.expander("View Processing Details", expanded=False):
-            st.write("Processing Times by Phase:")
-            for phase, duration in timer.get_phase_times().items():
-                st.write(f"- {phase}: {format_time(duration)}")
-
     else:
-        st.info("Upload documents to start processing.")
+        st.info("Upload documents to begin processing.")
 
 if __name__ == "__main__":
     main()

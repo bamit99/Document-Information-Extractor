@@ -202,7 +202,7 @@ class OpenAICompatibleProvider(LLMProvider):
 class OllamaProvider(LLMProvider):
     """Ollama API provider"""
     
-    def __init__(self, base_url: str, model: str = "llama2"):
+    def __init__(self, base_url: str, model: str = "llama3.2-vision"):
         super().__init__()
         self.base_url = base_url.rstrip('/')
         self.model = model
@@ -210,19 +210,98 @@ class OllamaProvider(LLMProvider):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def generate_qa(self, text: str) -> Optional[str]:
         try:
-            # For Ollama, we combine system and user prompts
-            full_prompt = f"{self.system_prompt}\n\n{self.user_prompt_template.format(text=text)}"
-            
+            # Format the prompt to better structure the conversation
+            formatted_prompt = (
+                f"### System:\n{self.system_prompt}\n\n"
+                f"### Human:\n{self.user_prompt_template.format(text=text)}\n\n"
+                f"### Assistant:\n"
+            )
+
+            # Log the exact prompt being sent
+            logger.info("=" * 80)
+            logger.info("Sending prompt to Ollama:")
+            logger.info("-" * 40 + " SYSTEM PROMPT " + "-" * 40)
+            logger.info(self.system_prompt)
+            logger.info("-" * 40 + " USER PROMPT " + "-" * 40)
+            logger.info(self.user_prompt_template.format(text=text[:200] + "..." if len(text) > 200 else text))
+            logger.info("-" * 40 + " FULL FORMATTED PROMPT " + "-" * 40)
+            logger.info(formatted_prompt)
+            logger.info("=" * 80)
+
+            # Always use the /api/generate endpoint for more reliable responses
             response = requests.post(
                 f"{self.base_url}/api/generate",
                 json={
                     "model": self.model,
-                    "prompt": full_prompt,
-                    "stream": False
-                }
+                    "prompt": formatted_prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.7,
+                        "stop": [
+                            "### Human:",
+                            "### Assistant:",
+                            "### System:",
+                            "\n\n\n"
+                        ],
+                        "num_predict": 2048,  # Increased for more complete responses
+                        "top_k": 40,
+                        "top_p": 0.9
+                    }
+                },
+                timeout=120  # Increased timeout for longer responses
             )
+            
             response.raise_for_status()
-            return response.json()['response'].strip()
+            
+            try:
+                data = response.json()
+                if not isinstance(data, dict):
+                    logger.error(f"Invalid JSON response from Ollama API: {response.text[:200]}")
+                    return None
+                
+                response_text = data.get('response', '')
+                
+                if not response_text:
+                    logger.error(f"No valid response content found in Ollama API response: {response.text[:200]}")
+                    return None
+                
+                # Log the response
+                logger.info("=" * 80)
+                logger.info("Received response from Ollama:")
+                logger.info("-" * 80)
+                logger.info(response_text[:200] + "..." if len(response_text) > 200 else response_text)
+                logger.info("=" * 80)
+                
+                # Clean up the response
+                response_text = response_text.strip()
+                if response_text:
+                    # If the response ends with an incomplete sentence, try to find the last complete one
+                    last_sentence_end = max(
+                        response_text.rfind('.'),
+                        response_text.rfind('?'),
+                        response_text.rfind('!')
+                    )
+                    if last_sentence_end > len(response_text) * 0.5:  # Only trim if we're not losing too much
+                        response_text = response_text[:last_sentence_end + 1].strip()
+                    
+                    # Remove any trailing incomplete words
+                    if not response_text[-1] in '.!?':
+                        last_space = response_text.rfind(' ')
+                        if last_space > len(response_text) * 0.8:  # Only trim if we're not losing too much
+                            response_text = response_text[:last_space].strip()
+                            
+                return response_text
+                
+            except ValueError as e:
+                logger.error(f"Failed to parse Ollama response: {str(e)}")
+                return None
+                
+        except requests.exceptions.ConnectionError:
+            logger.error("Could not connect to Ollama. Please ensure Ollama is running and accessible.")
+            return None
+        except requests.exceptions.Timeout:
+            logger.error("Request to Ollama timed out. Please check if Ollama is responding.")
+            return None
         except Exception as e:
             logger.error(f"Error in Ollama API call: {str(e)}")
             return None
@@ -230,16 +309,26 @@ class OllamaProvider(LLMProvider):
     def list_models(self) -> List[str]:
         """List available models from Ollama local instance"""
         try:
-            response = requests.get(f"{self.base_url}/api/tags")
+            response = requests.get(f"{self.base_url}/api/tags", timeout=30)
             response.raise_for_status()
+            
             data = response.json()
-            if 'models' in data:
-                return sorted([model['name'] for model in data['models']])
-            else:
-                logger.warning("No models found in Ollama response")
+            if not isinstance(data, dict) or 'models' not in data:
+                logger.warning("Unexpected response format from Ollama API")
                 return []
+                
+            models = []
+            for model in data['models']:
+                if isinstance(model, dict) and 'name' in model:
+                    models.append(model['name'])
+                    
+            return sorted(models)
+            
         except requests.exceptions.ConnectionError:
-            logger.error("Could not connect to Ollama. Is it running?")
+            logger.error("Could not connect to Ollama. Please ensure Ollama is running and accessible.")
+            return []
+        except requests.exceptions.Timeout:
+            logger.error("Request to Ollama timed out while fetching models.")
             return []
         except Exception as e:
             logger.error(f"Error listing Ollama models: {str(e)}")
@@ -681,7 +770,7 @@ def main():
         elif args.provider == 'ollama':
             if not args.base_url:
                 raise ValueError("base-url is required for Ollama provider")
-            provider = OllamaProvider(args.base_url, args.model or "llama2")
+            provider = OllamaProvider(args.base_url, args.model or "llama3.2-vision")
         elif args.provider == 'deepseek':
             api_key = os.getenv('DEEPSEEK_API_KEY')
             if not api_key or not args.base_url:
