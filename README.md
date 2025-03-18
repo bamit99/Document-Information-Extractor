@@ -41,8 +41,8 @@ A sophisticated Python-based application that leverages Large Language Models (L
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd Question-Answer
+   git clone https://github.com/bamit99/Document-Information-Extractor.git
+   cd Document-Information-Extractor
    ```
 
 2. Create a virtual environment:
