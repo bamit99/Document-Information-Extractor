@@ -1,7 +1,9 @@
-# AutomatedQuestionnaire
+![image](https://github.com/user-attachments/assets/06c27d13-16ea-4c43-9d12-86f182a199bd)
+# Document Inforamtion Extractor
 
-A sophisticated Python-based application that leverages Large Language Models (LLMs) to automatically process large documents based on various system prompts included in the program. This tool is designed to extract meaningful information and create structured data based on the system promppt selected. The solution is simple. Configure your LLM provider, upload your documents, and select the prompt you need. The application will process the documents and provide you with the results based on the selected System Prompt.
+A sophisticated Python-based application that leverages Large Language Models (LLMs) to automatically process large documents based on various system prompts included in the program. This tool is designed to extract meaningful information and create structured data based on the system promppt selected. The solution is simple. Configure your LLM provider, upload your documents, and select the prompt you need. The application will process the documents and provide you with the results based on the selected System Prompt. 
 
+**Inspired by daniel miessler's h___s://github.com/danielmiessler/fabric**
 
 ## Features
 
@@ -41,8 +43,8 @@ A sophisticated Python-based application that leverages Large Language Models (L
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd Question-Answer
+   git clone https://github.com/bamit99/Document-Information-Extractor.git
+   cd Document-Information-Extractor
    ```
 
 2. Create a virtual environment:
